@@ -7,13 +7,16 @@ Recreated from scratch:
 
 Quick start:
 
-## One-setup for Windows (shareable)
+## One-setup for Windows (single downloadable file)
 
-Use this single file on any Windows machine:
+Download one file (`setup-wallet-windows.bat`) from the repo and run it on any Windows machine.
 
-1. Double-click `setup-wallet-windows.bat`
-2. Follow prompts to install dependencies and verify build
-3. Start with `npm run dev` (or `pnpm dev`) and open `http://localhost:3000`
+Usage:
+
+1. Double-click `setup-wallet-windows.bat`.
+2. Choose a target folder (or press Enter for default).
+3. The installer downloads the latest project, installs dependencies, and runs a build check.
+4. Start with `pnpm dev` when ready and open `http://localhost:3000`.
 
 ## Manual start (if you prefer)
 
