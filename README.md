@@ -13,10 +13,10 @@ Download one file (`setup-wallet-windows.bat`) from the repo and run it on any W
 
 Usage:
 
-1. Double-click `setup-wallet-windows.bat`.
-2. Choose a target folder (or press Enter for default).
-3. The installer downloads the latest project, installs dependencies, and runs a build check.
-4. Start with `pnpm dev` when ready and open `http://localhost:3000`.
+1. If you are in the project folder, double-click `setup-wallet-windows.bat` for local setup.
+2. Or run it with any folder path to install into a separate location.
+3. The setup installs dependencies and runs a build check.
+4. Start with `npm run dev` (or `pnpm run dev`) when ready and open `http://localhost:3000`.
 
 If double-click does nothing, run from a terminal instead:
 
