@@ -1,6 +1,12 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
+:: Force launch in a real cmd window (for users who double-click from Explorer).
+if "%~f0"=="" (
+  echo [ERROR] Cannot run this file directly from this shell.
+  exit /b 1
+)
+
 title VaultFlow - Single Windows Setup (Downloads from GitHub)
 
 set "REPO_OWNER=parasstaffing1-hash"
@@ -17,6 +23,8 @@ if "%~1"=="" (
   set "TARGET_DIR=%~1"
 )
 
+if not exist "%TEMP%" set "TEMP=%USERPROFILE%\AppData\Local\Temp"
+
 echo ==============================================
 echo VaultFlow / Wallet - One-click Windows setup
 echo ==============================================
@@ -30,8 +38,11 @@ echo Default install folder:
 echo   %TARGET_DIR%
 echo.
 set /p INPUT_TARGET="Press Enter to use default, or type custom folder: "
-if not "%INPUT_TARGET%"=="" set "TARGET_DIR=%INPUT_TARGET%"
-
+if defined INPUT_TARGET (
+  if not "%INPUT_TARGET%"=="" (
+    set "TARGET_DIR=%INPUT_TARGET%"
+  )
+)
 if /I "%INPUT_TARGET%"=="." set "TARGET_DIR=%CD%"
 
 where node >nul 2>nul

@@ -18,6 +18,19 @@ Usage:
 3. The installer downloads the latest project, installs dependencies, and runs a build check.
 4. Start with `pnpm dev` when ready and open `http://localhost:3000`.
 
+If double-click does nothing, run from a terminal instead:
+
+```bat
+cd /d %USERPROFILE%\Downloads
+setup-wallet-windows.bat
+```
+
+Or paste a one-liner to run directly (downloads latest setup and starts it):
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/parasstaffing1-hash/wallet/main/setup-wallet-windows.bat" -OutFile "$env:TEMP\setup-wallet-windows.bat"; Start-Process cmd.exe -ArgumentList '/c', "$env:TEMP\setup-wallet-windows.bat" -NoNewWindow
+```
+
 ## Manual start (if you prefer)
 
 1. `pnpm install`
