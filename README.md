@@ -5,7 +5,17 @@ Recreated from scratch:
 - Home: `/`
 - API Wallet: `/wallet`
 
-Run:
+Quick start:
+
+## One-setup for Windows (shareable)
+
+Use this single file on any Windows machine:
+
+1. Double-click `setup-wallet-windows.bat`
+2. Follow prompts to install dependencies and verify build
+3. Start with `npm run dev` (or `pnpm dev`) and open `http://localhost:3000`
+
+## Manual start (if you prefer)
 
 1. `pnpm install`
 2. `npm run dev`
@@ -15,7 +25,7 @@ Run:
 
 VaultFlow uses offline-first auth. Open the app first at `/auth` (or use the `Login` link in the header), create an account, then log in from the same browser. No backend or internet calls are used for authentication.
 
-To launch quickly, run:
+To launch quickly (legacy helper):
 
 ```powershell
 ./open-dashboard.ps1

@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   clearWallet,
@@ -604,12 +605,24 @@ export default function WalletPage() {
             <h1 className="mt-1 text-3xl font-semibold">Project API Wallet</h1>
             <p className="mt-2 text-sm text-gray-300">Manage API keys, tokens, and secrets by project and app.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onSignOut}
-              className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
-            >
-              Sign Out
+        <div className="flex items-center gap-2">
+          <Link
+            href="/passwords"
+            className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-300/20"
+          >
+            Password Manager
+          </Link>
+          <Link
+            href="/settings"
+            className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
+          >
+            Settings
+          </Link>
+          <button
+            onClick={onSignOut}
+            className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
+          >
+            Sign Out
             </button>
             <button
               onClick={() => setIsLocked(true)}
