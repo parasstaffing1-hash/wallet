@@ -68,9 +68,13 @@ fn collect_folder_files(root: &Path, current: &Path, files: &mut Vec<FolderFile>
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
+        let folder_name = root
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| "project".to_string());
         files.push(FolderFile {
             name: entry.file_name().to_string_lossy().to_string(),
-            relative_path,
+            relative_path: format!("{folder_name}/{relative_path}"),
             size: metadata.len(),
             content,
         });

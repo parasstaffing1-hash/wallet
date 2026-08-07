@@ -1,5 +1,6 @@
 export interface WalletSecret {
   id: string;
+  folder: string;
   project: string;
   app: string;
   name: string;
@@ -137,11 +138,15 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
     if (decoded.trim() === "") {
       return [];
     }
-    const secrets = JSON.parse(decoded) as WalletSecret[];
+    const secrets = JSON.parse(decoded) as Array<WalletSecret & { folder?: string }>;
     if (!Array.isArray(secrets)) {
       return [];
     }
-    return secrets.sort((a, b) => {
+    const normalizedSecrets = secrets.map((secret) => ({
+      ...secret,
+      folder: secret.folder?.trim() || secret.project?.trim() || "General",
+    }));
+    return normalizedSecrets.sort((a, b) => {
       const aTime = Date.parse(a.updatedAt);
       const bTime = Date.parse(b.updatedAt);
       if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) {

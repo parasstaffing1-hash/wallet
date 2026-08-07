@@ -31,6 +31,7 @@ type NativeFolderFile = {
 };
 
 const blankForm: FormState = {
+  folder: "General",
   project: "",
   app: "",
   name: "",
@@ -204,16 +205,24 @@ function inferProjectFromPath(relativePath: string): string {
   return parts.length > 0 ? parts[0] : "project";
 }
 
+function inferFolderFromPath(relativePath: string): string {
+  const parts = relativePath.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[0] : "General";
+}
+
 function inferAppFromPath(relativePath: string): string {
   const parts = relativePath.split("/").filter(Boolean);
-  if (parts.length <= 1) {
+  if (parts.length <= 2) {
     return "app";
   }
   return parts[parts.length - 2];
 }
 
-function keyForSecret(secret: Pick<WalletSecret, "project" | "app" | "name">): string {
-  return `${secret.project}::${secret.app}::${secret.name}`;
+function keyForSecret(
+  secret: Pick<WalletSecret, "project" | "app" | "name"> & Partial<Pick<WalletSecret, "folder">>
+): string {
+  const folder = secret.folder?.trim() || "General";
+  return `${folder}::${secret.project}::${secret.app}::${secret.name}`;
 }
 
 function shortTime(value: string): string {
@@ -244,6 +253,7 @@ export default function WalletPage() {
   const [secrets, setSecrets] = useState<WalletSecret[]>([]);
   const [form, setForm] = useState<FormState>(blankForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [folderFilter, setFolderFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [searchTermInput, setSearchTermInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -260,6 +270,11 @@ export default function WalletPage() {
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [secrets]);
 
+  const folders = useMemo(() => {
+    const values = new Set(secrets.map((secret) => secret.folder || "General"));
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [secrets]);
+
   const totalApps = useMemo(() => {
     const apps = new Set(secrets.map((secret) => `${secret.project}::${secret.app}`));
     return apps.size;
@@ -267,20 +282,27 @@ export default function WalletPage() {
 
   const filteredSecrets = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    if (projectFilter === "all" && !term) {
+    if (folderFilter === "all" && projectFilter === "all" && !term) {
       return secrets;
     }
     if (!term) {
-      return secrets.filter((secret) => secret.project === projectFilter);
+      return secrets.filter(
+        (secret) =>
+          (folderFilter === "all" || (secret.folder || "General") === folderFilter) &&
+          (projectFilter === "all" || secret.project === projectFilter)
+      );
     }
     return secrets.filter((secret) => {
+      if (folderFilter !== "all" && (secret.folder || "General") !== folderFilter) {
+        return false;
+      }
       if (projectFilter !== "all" && secret.project !== projectFilter) {
         return false;
       }
       const haystack = `${secret.project} ${secret.app} ${secret.name} ${secret.notes ?? ""}`.toLowerCase();
       return haystack.includes(term);
     });
-  }, [searchTerm, projectFilter, secrets]);
+  }, [folderFilter, searchTerm, projectFilter, secrets]);
 
   const visiblePage = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -313,7 +335,7 @@ export default function WalletPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, projectFilter]);
+  }, [folderFilter, searchTerm, projectFilter]);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -411,6 +433,7 @@ export default function WalletPage() {
         nextSecrets = [
           {
             ...edited,
+            folder: form.folder.trim() || "General",
             project: form.project.trim(),
             app: form.app.trim(),
             name: form.name.trim(),
@@ -424,6 +447,7 @@ export default function WalletPage() {
         nextSecrets = [
           {
             id: crypto.randomUUID(),
+            folder: form.folder.trim() || "General",
             project: form.project.trim(),
             app: form.app.trim(),
             name: form.name.trim(),
@@ -449,6 +473,7 @@ export default function WalletPage() {
   const onEdit = (secret: WalletSecret) => {
     setEditingId(secret.id);
     setForm({
+      folder: secret.folder || "General",
       project: secret.project,
       app: secret.app,
       name: secret.name,
@@ -573,17 +598,19 @@ export default function WalletPage() {
           }
 
           const project = inferProjectFromPath(relativePath);
+          const folder = inferFolderFromPath(relativePath);
           const app = inferAppFromPath(relativePath);
 
           for (const pair of parsed) {
             const secretName = pair.key.trim();
             const secretValue = pair.value.trim();
-            const scanKey = keyForSecret({ project, app, name: secretName });
+            const scanKey = keyForSecret({ folder, project, app, name: secretName });
             if (!secretName || !secretValue || seenInScan.has(scanKey)) {
               continue;
             }
             seenInScan.add(scanKey);
             collected.push({
+              folder,
               project,
               app,
               name: secretName,
@@ -712,6 +739,7 @@ export default function WalletPage() {
           continue;
         }
         collected.push({
+          folder: "Clipboard",
           project: "clipboard",
           app: "imports",
           name: secretName,
@@ -909,8 +937,8 @@ export default function WalletPage() {
             <p className="mt-3 text-2xl font-semibold">{totalApps}</p>
           </article>
           <article className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Filtered</p>
-            <p className="mt-3 text-2xl font-semibold">{filteredSecrets.length}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Folders</p>
+            <p className="mt-3 text-2xl font-semibold">{folders.length}</p>
           </article>
         </div>
       </section>
@@ -922,6 +950,7 @@ export default function WalletPage() {
             Choose a project folder and Wallet will look through common config files for API keys, tokens, passwords, and other secrets.
             It skips dependency folders and keeps everything on this computer.
           </p>
+          <p className="mt-2 text-xs font-medium text-[#0a66c2]">Each scan is grouped into its own folder so projects stay separate.</p>
           <p className="mt-3 text-xs font-medium text-slate-500">Looks in .env, JSON, YAML, TOML, PEM, and source config files.</p>
           <button
             type="button"
@@ -952,6 +981,19 @@ export default function WalletPage() {
           <p className="text-sm font-semibold text-gray-200">{editingId ? "Update Secret" : "Add Secret"}</p>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="text-sm text-gray-300" htmlFor="folder">
+                Folder
+              </label>
+              <input
+                id="folder"
+                className={inputClass}
+                value={form.folder}
+                onChange={(event) => setForm((prev) => ({ ...prev, folder: event.target.value }))}
+                placeholder="client-a / production"
+              />
+              <p className="mt-1 text-xs text-slate-500">Use a simple name like Client A, Production, or Personal.</p>
+            </div>
             <div>
               <label className="text-sm text-gray-300" htmlFor="project">
                 Project
@@ -1055,6 +1097,18 @@ export default function WalletPage() {
       <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <select
+            value={folderFilter}
+            onChange={(event) => setFolderFilter(event.target.value)}
+            className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-gray-200 md:w-auto"
+          >
+            <option value="all">All folders</option>
+            {folders.map((folder) => (
+              <option key={folder} value={folder}>
+                {folder}
+              </option>
+            ))}
+          </select>
+          <select
             value={projectFilter}
             onChange={(event) => setProjectFilter(event.target.value)}
             className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-gray-200 md:w-auto"
@@ -1104,6 +1158,9 @@ export default function WalletPage() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-100">
                         <p className="truncate" title={secret.name}>
                           {secret.name}
+                        </p>
+                        <p className="mt-1 truncate text-xs font-medium text-[#0a66c2]" title={secret.folder || "General"}>
+                          {secret.folder || "General"}
                         </p>
                         {secret.notes && (
                           <p className="mt-1 truncate text-xs text-gray-400" title={secret.notes}>
