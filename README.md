@@ -46,3 +46,17 @@ To launch quickly (legacy helper):
 ```powershell
 ./open-dashboard.ps1
 ```
+
+## Native desktop app
+
+The project includes a Tauri desktop shell in `src-tauri/`. It opens the wallet in its own Windows app window instead of a browser tab and loads the static UI locally for offline use.
+
+Build the Windows installer with:
+
+```powershell
+npm install
+npm run build
+npx @tauri-apps/cli@2.11.4 build --ci
+```
+
+The installer is written to `src-tauri/target/release/bundle/nsis/`.

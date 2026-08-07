@@ -1,0 +1,16 @@
+[package]
+name = "wallet-desktop"
+version = "1.0.0"
+description = "Offline desktop API key and password wallet"
+authors = ["Wallet"]
+edition = "2021"
+
+[lib]
+name = "wallet_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
