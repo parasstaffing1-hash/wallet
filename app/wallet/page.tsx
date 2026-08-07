@@ -3,6 +3,7 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { invoke } from "@tauri-apps/api/core";
 import {
   clearWallet,
   clearWalletKeyCache,
@@ -16,6 +17,18 @@ import { getCurrentSession, logout } from "../../lib/auth";
 type FormState = Omit<WalletSecret, "id" | "createdAt" | "updatedAt">;
 type ImportableSecret = Omit<WalletSecret, "id" | "createdAt" | "updatedAt">;
 type SecretRecord = { key: string; value: string };
+type ScanInputFile = {
+  name: string;
+  relativePath: string;
+  size: number;
+  readText: () => Promise<string>;
+};
+type NativeFolderFile = {
+  name: string;
+  relative_path: string;
+  size: number;
+  content: string;
+};
 
 const blankForm: FormState = {
   project: "",
@@ -503,13 +516,11 @@ export default function WalletPage() {
     clearMessage();
   };
 
-  const onImportFolder = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const selectedFiles = Array.from(event.target.files ?? []);
-      if (!selectedFiles.length) {
-        if (event.target instanceof HTMLInputElement) {
-          event.target.value = "";
-        }
+  const importFolderFiles = useCallback(
+    async (scanFiles: ScanInputFile[]) => {
+      if (!scanFiles.length) {
+        setMessageTone("error");
+        setMessage("That folder is empty.");
         return;
       }
 
@@ -523,11 +534,8 @@ export default function WalletPage() {
         const seenInScan = new Set<string>();
         let scannedFiles = 0;
         let skippedFiles = 0;
-        for (const file of selectedFiles) {
-          const relativePath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name).replace(
-            /\\/g,
-            "/"
-          );
+        for (const file of scanFiles) {
+          const relativePath = file.relativePath.replace(/\\/g, "/");
           const filename = file.name.toLowerCase();
           const pathParts = relativePath.split("/").filter(Boolean);
           if (
@@ -540,7 +548,7 @@ export default function WalletPage() {
           }
 
           scannedFiles++;
-          const content = await file.text();
+          const content = await file.readText();
           if (content.includes("\u0000")) {
             skippedFiles++;
             continue;
@@ -625,15 +633,52 @@ export default function WalletPage() {
         setMessage(error instanceof Error ? error.message : "Failed to import from folder.");
       } finally {
         setIsBusy(false);
-        if (event.target instanceof HTMLInputElement) {
-          event.target.value = "";
-        }
       }
     },
     [persist, secrets]
   );
 
-  const openFolderPicker = () => importInputRef.current?.click();
+  const onImportFolder = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const selectedFiles = Array.from(event.target.files ?? []);
+      await importFolderFiles(
+        selectedFiles.map((file) => ({
+          name: file.name,
+          relativePath: ((file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name).replace(/\\/g, "/"),
+          size: file.size,
+          readText: () => file.text(),
+        }))
+      );
+      event.target.value = "";
+    },
+    [importFolderFiles]
+  );
+
+  const openFolderPicker = useCallback(async () => {
+    const internals = (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    if (!internals) {
+      importInputRef.current?.click();
+      return;
+    }
+
+    try {
+      const nativeFiles = await invoke<NativeFolderFile[] | null>("choose_and_scan_folder");
+      if (!nativeFiles) {
+        return;
+      }
+      await importFolderFiles(
+        nativeFiles.map((file) => ({
+          name: file.name,
+          relativePath: file.relative_path,
+          size: file.size,
+          readText: async () => file.content,
+        }))
+      );
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to open the folder picker.");
+    }
+  }, [importFolderFiles]);
   const onImportClipboard = useCallback(async () => {
     setIsBusy(true);
     setMessage(null);
