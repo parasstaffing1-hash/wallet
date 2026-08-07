@@ -6,5 +6,8 @@ node_modules/
 *.log
 coverage/
 dist/
+out/
+Wallet-Setup.exe
+installer-output.txt
 tmp/
 tmp/*
