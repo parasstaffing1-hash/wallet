@@ -51,11 +51,11 @@ function Toggle({
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
       />
-      <span className="w-11 h-6 rounded-full bg-white/20 transition peer-checked:bg-cyan-400 peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-cyan-300/80"></span>
+      <span className="h-6 w-11 rounded-full bg-slate-200 transition peer-checked:bg-[#0a66c2] peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-blue-200"></span>
       <span
         className={`pointer-events-none absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`}
       />
-      <span className="ml-3 text-sm text-slate-200">{label}</span>
+      <span className="ml-3 text-sm text-slate-700">{label}</span>
     </label>
   );
 }
@@ -63,10 +63,10 @@ function Toggle({
 function StatusChip({ tone, text }: { tone: "ok" | "warn" | "neutral"; text: string }) {
   const colors =
     tone === "ok"
-      ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-100"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : tone === "warn"
-        ? "bg-amber-500/20 border-amber-400/40 text-amber-100"
-        : "bg-slate-500/20 border-slate-400/40 text-slate-100";
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-slate-200 bg-slate-50 text-slate-700";
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs ${colors}`}>{text}</span>;
 }
 
@@ -184,8 +184,8 @@ export default function SettingsPage() {
   if (!isAuthChecked) {
     return (
       <section className="mx-auto mt-16 max-w-5xl px-4">
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-7 shadow-lg">
-          <p className="text-sm text-slate-300">Checking session...</p>
+        <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <p className="text-sm text-slate-500">Checking session...</p>
         </div>
       </section>
     );
@@ -193,12 +193,12 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen md:pl-72">
-      <nav className="fixed inset-y-0 left-0 hidden w-72 border-r border-white/10 bg-slate-900/70 p-6 backdrop-blur md:flex md:flex-col md:gap-4">
+      <nav className="fixed inset-y-0 left-0 hidden w-72 border-r border-slate-200 bg-white p-6 shadow-sm md:flex md:flex-col md:gap-4">
         <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-200">[SEC]</div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-[#0a66c2]">[SEC]</div>
           <div>
-            <p className="text-lg font-semibold">Lumina Secure</p>
-            <p className="text-xs text-slate-300">Vault Locked</p>
+            <p className="text-lg font-semibold text-slate-900">Lumina Secure</p>
+            <p className="text-xs text-slate-500">Vault locked</p>
           </div>
         </div>
 
@@ -211,8 +211,8 @@ export default function SettingsPage() {
                 href={item.href}
                 className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
                   active
-                    ? "bg-cyan-500/20 text-cyan-100"
-                    : "text-slate-300 hover:bg-white/5 hover:text-white"
+                    ? "bg-blue-50 text-[#0a66c2]"
+                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
                 <span>{item.icon}</span>
@@ -222,48 +222,48 @@ export default function SettingsPage() {
           })}
         </div>
 
-        <div className="mt-auto space-y-2 border-t border-white/10 pt-4">
+        <div className="mt-auto space-y-2 border-t border-slate-200 pt-4">
           <button
             onClick={onSignOut}
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-left text-sm text-slate-200 hover:bg-white/10"
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
           >
             Sign Out
           </button>
           <button
             onClick={() => router.replace("/wallet")}
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-left text-sm text-slate-200 hover:bg-white/10"
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
           >
             Open API Vault
           </button>
         </div>
       </nav>
 
-      <header className="hidden md:flex fixed top-0 right-0 z-20 flex h-16 w-[calc(100%-18rem)] items-center justify-end gap-4 border-b border-white/10 bg-slate-950/70 px-8 backdrop-blur">
-        <button className="rounded-full bg-cyan-500 px-3 py-2 text-xs font-semibold text-white">Add Key</button>
-        <button className="rounded-full border border-cyan-300/60 px-3 py-2 text-xs text-cyan-200">Unlock Vault</button>
+      <header className="fixed right-0 top-0 z-20 hidden h-16 w-[calc(100%-18rem)] items-center justify-end gap-4 border-b border-slate-200 bg-white px-8 md:flex">
+        <button className="rounded-full bg-[#0a66c2] px-3 py-2 text-xs font-semibold text-white">Add Key</button>
+        <button className="rounded-full border border-blue-200 px-3 py-2 text-xs text-[#0a66c2]">Unlock vault</button>
       </header>
 
       <main className="relative min-h-screen overflow-x-hidden p-4 pt-6 md:p-8 md:pt-24">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-sky-100/10 via-slate-800/10 to-indigo-900/10" />
+        <div className="absolute inset-0 -z-10 bg-[#f3f6f8]" />
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 lg:grid-cols-12">
           <section className="lg:col-span-4 space-y-6">
             <div>
               <h1 className="text-2xl font-semibold">Settings</h1>
-              <p className="mt-1 text-sm text-slate-300">Manage account preferences, security settings, and vault controls.</p>
+              <p className="mt-1 text-sm text-slate-600">Manage your account, security, and local vault preferences.</p>
             </div>
 
-            <article className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-[0_20px_40px_rgba(0,0,0,0.25)]">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-4 flex items-start justify-between">
                 <div>
                   <p className="text-sm font-medium">Security Score</p>
-                  <p className="mt-1 text-xs text-slate-400">Improve by enabling stronger lock and recovery options</p>
+                  <p className="mt-1 text-xs text-slate-500">Improve your local vault protection.</p>
                 </div>
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-lg font-bold text-white">{securityScore}</div>
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-lg font-bold text-[#0a66c2]">{securityScore}</div>
               </div>
-              <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                <p className="font-semibold">Action required</p>
-                <p className="mt-1 text-xs text-amber-100/90">Enable biometric lock to secure local vault access.</p>
-                <button className="mt-3 w-full rounded-full border border-amber-300/30 bg-amber-300/20 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-300/30">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                <p className="font-semibold">Optional hardening</p>
+                <p className="mt-1 text-xs text-amber-700">Add stronger local unlock options when you are ready.</p>
+                <button className="mt-3 w-full rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">
                   Enable Biometrics
                 </button>
               </div>
@@ -271,44 +271,44 @@ export default function SettingsPage() {
           </section>
 
           <section className="space-y-6 lg:col-span-8">
-            <article className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
                 <p className="text-sm font-semibold">Profile Settings</p>
                 <StatusChip text="Linked" tone="warn" />
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Full Name</label>
+                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Full Name</label>
                   <input
                     value={settings.fullName}
                     onChange={(event) => setSettings((prev) => ({ ...prev, fullName: event.target.value }))}
-                    className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2.5 text-sm outline-none ring-cyan-300/40 focus:ring-2"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2"
                     placeholder="Jane Doe"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-400">Email Address</label>
+                  <label className="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Email Address</label>
                   <input
                     value={settings.email}
                     onChange={(event) => setSettings((prev) => ({ ...prev, email: event.target.value }))}
-                    className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2.5 text-sm outline-none ring-cyan-300/40 focus:ring-2"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2"
                     placeholder="you@company.com"
                   />
                 </div>
               </div>
               <div className="mt-5 flex items-center justify-between gap-3">
-                <p className="text-xs text-slate-400">Signed in as {username}</p>
+                <p className="text-xs text-slate-500">Signed in as {username}</p>
                 <button
                   onClick={onProfileSave}
-                  className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500/90"
+                  className="rounded-xl bg-[#0a66c2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#004182]"
                 >
                   Save Profile
                 </button>
               </div>
             </article>
 
-            <article className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
                 <p className="text-sm font-semibold">Security & 2FA</p>
                 <StatusChip text="Hardening" tone="ok" />
               </div>
@@ -328,14 +328,14 @@ export default function SettingsPage() {
                   label="SMS recovery"
                   onChange={(value) => onToggle("useSmsRecovery", value)}
                 />
-                <button className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10">
+                <button className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
                   Change Master Password
                 </button>
               </div>
             </article>
 
-            <article className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
                 <p className="text-sm font-semibold">Notifications</p>
               </div>
               <div className="space-y-6">
@@ -357,18 +357,18 @@ export default function SettingsPage() {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900/80 to-slate-800/50 p-6 shadow-sm">
+            <article className="rounded-2xl border border-blue-200 bg-blue-50 p-6 shadow-sm">
               <div className="md:flex md:items-center md:justify-between">
                 <div className="max-w-xl">
                   <p className="text-sm font-semibold">Vault Export</p>
-                  <p className="mt-1 text-xs text-slate-300">
+                  <p className="mt-1 text-xs text-slate-600">
                     Export an encrypted backup payload (wallet and password blobs) with your current settings profile.
                   </p>
                 </div>
                 <button
                   onClick={exportVault}
                   disabled={isBusy}
-                  className="mt-4 w-full rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:mt-0 md:w-auto"
+                  className="mt-4 w-full rounded-xl bg-[#0a66c2] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60 md:mt-0 md:w-auto"
                 >
                   {isBusy ? "Exporting..." : "Export Vault Data"}
                 </button>
@@ -378,7 +378,7 @@ export default function SettingsPage() {
         </div>
 
         {message && (
-          <p className="mx-auto mt-6 max-w-6xl rounded-xl border border-cyan-300/30 bg-cyan-300/10 p-3 text-xs text-cyan-100">
+          <p className="mx-auto mt-6 max-w-6xl rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">
             {message}
           </p>
         )}

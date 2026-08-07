@@ -67,6 +67,7 @@ const SCAN_TEXT_EXTENSIONS = new Set([
   ".jsx",
   ".mjs",
   ".php",
+  ".pem",
   ".properties",
   ".ps1",
   ".py",
@@ -554,7 +555,15 @@ export default function WalletPage() {
             continue;
           }
           const isEnvFile = filename === ".env" || filename.startsWith(".env.");
-          const parsed = isEnvFile
+          const isPemFile = filename.endsWith(".pem");
+          const parsed = isPemFile
+            ? [
+                {
+                  key: `${file.name.replace(/\.pem$/i, "").replace(/[^a-z0-9]+/gi, "_").toUpperCase() || "PEM_SECRET"}`,
+                  value: content.trim(),
+                },
+              ]
+            : isEnvFile
             ? parseEnvContent(content).filter((pair) => isLikelySecretPair(pair.key, pair.value))
             : filename.endsWith(".json")
               ? parseJsonSecrets(content)
@@ -906,7 +915,7 @@ export default function WalletPage() {
             Choose a project folder and Wallet will look through common config files for API keys, tokens, passwords, and other secrets.
             It skips dependency folders and keeps everything on this computer.
           </p>
-          <p className="mt-3 text-xs font-medium text-slate-500">Looks in .env, JSON, YAML, TOML, and source config files.</p>
+          <p className="mt-3 text-xs font-medium text-slate-500">Looks in .env, JSON, YAML, TOML, PEM, and source config files.</p>
           <button
             type="button"
             onClick={openFolderPicker}
