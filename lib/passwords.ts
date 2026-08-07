@@ -18,13 +18,26 @@ interface EncryptedPasswordVault {
 
 const PASSWORDS_STORAGE_KEY = "vaultflow-passwords:v1";
 const PASSWORD_ENCRYPTION_VERSION = 1;
+const PBKDF2_ITERATIONS = 50000;
+const BASE64_CHUNK_SIZE = 8192;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+type CachedPasswordKey = {
+  password: string;
+  salt: string;
+  key: CryptoKey;
+};
+
+let cachedKey: CachedPasswordKey | null = null;
 
 function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+  let output = "";
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
+    output += String.fromCharCode(...chunk);
   }
-  return btoa(binary);
+  return btoa(output);
 }
 
 function base64ToBytes(value: string): Uint8Array {
@@ -56,9 +69,14 @@ export function hasStoredPasswords(): boolean {
 }
 
 function getDerivedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const saltFingerprint = bytesToBase64(salt);
+  if (cachedKey && cachedKey.password === password && cachedKey.salt === saltFingerprint) {
+    return Promise.resolve(cachedKey.key);
+  }
+
   return window.crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(password),
+    encoder.encode(password),
     "PBKDF2",
     false,
     ["deriveKey"]
@@ -67,7 +85,7 @@ function getDerivedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
       {
         name: "PBKDF2",
         salt,
-        iterations: 120000,
+        iterations: PBKDF2_ITERATIONS,
         hash: "SHA-256",
       },
       baseKey,
@@ -75,7 +93,10 @@ function getDerivedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
       false,
       ["encrypt", "decrypt"]
     )
-  );
+  ).then((key) => {
+    cachedKey = { password, salt: saltFingerprint, key };
+    return key;
+  });
 }
 
 function getSaltAndBlob() {
@@ -106,13 +127,24 @@ export async function loadPasswords(password: string): Promise<PasswordEntry[]> 
 
   try {
     const plainText = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherText);
-    const decoded = new TextDecoder().decode(new Uint8Array(plainText));
+    const decoded = decoder.decode(new Uint8Array(plainText));
     if (decoded.trim() === "") {
       return [];
     }
     const secrets = JSON.parse(decoded) as PasswordEntry[];
-    return Array.isArray(secrets) ? secrets : [];
+    if (!Array.isArray(secrets)) {
+      return [];
+    }
+    return secrets.sort((a, b) => {
+      const aTime = Date.parse(a.updatedAt);
+      const bTime = Date.parse(b.updatedAt);
+      if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) {
+        return 0;
+      }
+      return bTime - aTime;
+    });
   } catch {
+    cachedKey = null;
     throw new Error("Invalid password or corrupted password vault.");
   }
 }
@@ -127,7 +159,7 @@ export async function savePasswords(password: string, secrets: PasswordEntry[]):
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const key = await getDerivedKey(password, salt);
 
-  const encoded = new TextEncoder().encode(JSON.stringify(secrets));
+  const encoded = encoder.encode(JSON.stringify(secrets));
   const cipherText = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
 
   const blob: EncryptedPasswordVault = {
@@ -141,7 +173,12 @@ export async function savePasswords(password: string, secrets: PasswordEntry[]):
 }
 
 export function clearPasswords(): void {
+  clearPasswordKeyCache();
   if (typeof window !== "undefined") {
     window.localStorage.removeItem(PASSWORDS_STORAGE_KEY);
   }
+}
+
+export function clearPasswordKeyCache(): void {
+  cachedKey = null;
 }

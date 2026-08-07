@@ -1,14 +1,16 @@
 ﻿"use client";
 
-import { KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearPasswords, hasStoredPasswords, loadPasswords, PasswordEntry, savePasswords } from "../../lib/passwords";
+import { clearPasswordKeyCache, clearPasswords, hasStoredPasswords, loadPasswords, PasswordEntry, savePasswords } from "../../lib/passwords";
 import { getCurrentSession, logout } from "../../lib/auth";
 
 type PasswordForm = Omit<PasswordEntry, "id" | "createdAt" | "updatedAt">;
 
 const fieldClass =
   "mt-2 w-full rounded-xl border border-white/12 bg-white/[0.05] px-3.5 py-2.5 text-sm text-gray-100 outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/20";
+
+const PAGE_SIZE = 75;
 
 const blankPassword: PasswordForm = {
   title: "",
@@ -42,11 +44,14 @@ export default function PasswordManagerPage() {
   const [isBusy, setIsBusy] = useState(false);
   const [isLocked, setIsLocked] = useState(true);
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [visiblePasswordId, setVisiblePasswordId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<PasswordForm>(blankPassword);
+  const [page, setPage] = useState(1);
+  const clearNoticeTimerRef = useRef<number | null>(null);
 
   const messageClass =
     messageTone === "error"
@@ -67,17 +72,57 @@ export default function PasswordManagerPage() {
   }, [router]);
 
   const filteredEntries = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return entries
-      .filter((entry) => {
-        const haystack = `${entry.title} ${entry.username} ${entry.website ?? ""} ${entry.notes ?? ""}`.toLowerCase();
-        return !term || haystack.includes(term);
-      })
-      .sort((a, b) => new Date(b.updatedAt).valueOf() - new Date(a.updatedAt).valueOf());
-  }, [entries, search]);
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      return entries;
+    }
+    return entries.filter((entry) => {
+      const haystack = `${entry.title} ${entry.username} ${entry.website ?? ""} ${entry.notes ?? ""}`.toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [entries, searchTerm]);
+
+  const visiblePage = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredEntries.slice(start, start + PAGE_SIZE);
+  }, [filteredEntries, page]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
 
   const clearNotice = useCallback(() => {
-    window.setTimeout(() => setMessage(null), 2600);
+    if (clearNoticeTimerRef.current !== null) {
+      window.clearTimeout(clearNoticeTimerRef.current);
+    }
+    clearNoticeTimerRef.current = window.setTimeout(() => {
+      setMessage(null);
+      clearNoticeTimerRef.current = null;
+    }, 2600);
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchTerm(searchInput);
+      setPage(1);
+    }, 220);
+    return () => window.clearTimeout(timeout);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    return () => {
+      if (clearNoticeTimerRef.current !== null) {
+        window.clearTimeout(clearNoticeTimerRef.current);
+      }
+    };
   }, []);
 
   const persist = useCallback(
@@ -104,6 +149,8 @@ export default function PasswordManagerPage() {
       const loaded = await loadPasswords(masterPassword);
       setEntries(loaded);
       setIsLocked(false);
+      setPage(1);
+      setVisiblePasswordId(null);
       setMessageTone("ok");
       setMessage("Password manager unlocked.");
       clearNotice();
@@ -132,22 +179,24 @@ export default function PasswordManagerPage() {
       const now = new Date().toISOString();
       let nextEntries: PasswordEntry[];
       if (editingId) {
-        nextEntries = entries.map((entry) =>
-          entry.id === editingId
-            ? {
-                ...entry,
-                title: form.title.trim(),
-                username: form.username.trim(),
-                password: form.password.trim(),
-                website: form.website?.trim() || "",
-                notes: form.notes?.trim(),
-                updatedAt: now,
-              }
-            : entry
-        );
+        const edited = entries.find((entry) => entry.id === editingId);
+        if (!edited) {
+          throw new Error("Credential not found.");
+        }
+        nextEntries = [
+          {
+            ...edited,
+            title: form.title.trim(),
+            username: form.username.trim(),
+            password: form.password.trim(),
+            website: form.website?.trim() || "",
+            notes: form.notes?.trim(),
+            updatedAt: now,
+          },
+          ...entries.filter((entry) => entry.id !== editingId),
+        ];
       } else {
         nextEntries = [
-          ...entries,
           {
             id: crypto.randomUUID(),
             title: form.title.trim(),
@@ -158,6 +207,7 @@ export default function PasswordManagerPage() {
             createdAt: now,
             updatedAt: now,
           },
+          ...entries,
         ];
       }
 
@@ -196,6 +246,9 @@ export default function PasswordManagerPage() {
         if (editingId === id) {
           resetForm();
         }
+        if (visiblePasswordId === id) {
+          setVisiblePasswordId(null);
+        }
       } catch (error) {
         setMessageTone("error");
         setMessage(error instanceof Error ? error.message : "Failed to delete credential.");
@@ -230,11 +283,25 @@ export default function PasswordManagerPage() {
   );
 
   const onSignOut = useCallback(() => {
+    clearPasswordKeyCache();
     logout();
     setIsLocked(true);
     setEntries([]);
+    setVisiblePasswordId(null);
+    setCopiedId(null);
+    setPage(1);
     router.replace("/auth");
   }, [router]);
+
+  const onLock = useCallback(() => {
+    clearPasswordKeyCache();
+    setMasterPassword("");
+    setEntries([]);
+    setVisiblePasswordId(null);
+    setCopiedId(null);
+    setPage(1);
+    setIsLocked(true);
+  }, []);
 
   if (!isAuthChecked) {
     return (
@@ -303,13 +370,7 @@ export default function PasswordManagerPage() {
               Sign Out
             </button>
             <button
-              onClick={() => {
-                setIsLocked(true);
-                setEntries([]);
-                setVisiblePasswordId(null);
-                setCopiedId(null);
-                setMasterPassword("");
-              }}
+              onClick={onLock}
               className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
             >
               Lock
@@ -344,8 +405,8 @@ export default function PasswordManagerPage() {
           <p className="text-sm font-semibold text-gray-200">Search credentials</p>
           <input
             className={`${fieldClass} mb-2`}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Search service / username / note..."
           />
           <p className="mt-2 text-sm text-gray-400">
@@ -482,7 +543,7 @@ export default function PasswordManagerPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredEntries.map((entry) => {
+                {visiblePage.map((entry) => {
                   const isVisible = visiblePasswordId === entry.id;
                   const masked = "*".repeat(Math.min(18, Math.max(8, entry.password.length || 8)));
                   return (
@@ -532,6 +593,30 @@ export default function PasswordManagerPage() {
                 })}
               </tbody>
             </table>
+            <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-xs text-gray-400">
+              <span>
+                Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredEntries.length)} of {filteredEntries.length}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page === 1}
+                  className="rounded-lg border border-white/15 px-3 py-1.5 text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <span className="flex items-center px-1">Page {page} of {totalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={page === totalPages}
+                  className="rounded-lg border border-white/15 px-3 py-1.5 text-gray-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </section>

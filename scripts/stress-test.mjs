@@ -4,10 +4,24 @@ const { subtle } = webcrypto;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const PASSPHRASE = "vaultflow-stress-passphrase";
+const PBKDF2_ITERATIONS = 50000;
 
 function parseArg(name, defaultValue) {
-  const arg = process.argv.find((item) => item.startsWith(`--${name}=`));
-  return arg ? Number.parseInt(arg.split("=")[1], 10) : defaultValue;
+  const key = `--${name}`;
+  const argv = process.argv;
+  for (let i = 0; i < argv.length; i += 1) {
+    const item = argv[i];
+    if (item === key && i + 1 < argv.length) {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        return Number.parseInt(next, 10);
+      }
+    }
+    if (item.startsWith(`${key}=`)) {
+      return Number.parseInt(item.split("=")[1], 10);
+    }
+  }
+  return defaultValue;
 }
 
 function toMb(bytes) {
@@ -35,7 +49,7 @@ async function deriveKey(password, salt) {
     {
       name: "PBKDF2",
       salt,
-      iterations: 120000,
+      iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
     baseKey,

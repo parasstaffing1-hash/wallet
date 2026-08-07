@@ -1,180 +1,204 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-title VaultFlow - Local / Download Windows Setup
+set "APP_NAME=wallet"
+set "REPO_ZIP=https://github.com/parasstaffing1-hash/wallet/archive/refs/heads/main.zip"
+set "START_URL=http://localhost:3000"
 
-set "SCRIPT_DIR=%~dp0"
-if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
-set "REPO_OWNER=parasstaffing1-hash"
-set "REPO_NAME=wallet"
-set "REPO_BRANCH=main"
-set "REPO_ZIP_URL=https://github.com/%REPO_OWNER%/%REPO_NAME%/archive/refs/heads/%REPO_BRANCH%.zip"
-set "WORK_DIR=%TEMP%\vaultflow-setup"
-set "ZIP_PATH=%WORK_DIR%\%REPO_NAME%.zip"
-set "EXTRACT_PATH=%WORK_DIR%\extract"
+set "WORKDIR="
+set "RUN_AFTER_INSTALL=1"
 
-set "RUN_LOCAL=0"
-if exist "%SCRIPT_DIR%\package.json" set "RUN_LOCAL=1"
+set "ARG1=%~1"
+set "ARG2=%~2"
 
-if "%~1"=="" (
-  if "%RUN_LOCAL%"=="1" set "TARGET_DIR=%SCRIPT_DIR%"
-  if not "%RUN_LOCAL%"=="1" set "TARGET_DIR=%USERPROFILE%\Documents\wallet"
-) else (
-  set "TARGET_DIR=%~1"
+if /I "%ARG1%"=="--no-run" set "RUN_AFTER_INSTALL=0"
+if /I "%ARG1%"=="-n" set "RUN_AFTER_INSTALL=0"
+if /I "%ARG2%"=="--no-run" set "RUN_AFTER_INSTALL=0"
+if /I "%ARG2%"=="-n" set "RUN_AFTER_INSTALL=0"
+
+if /I not "%ARG1:~0,1%"=="" (
+  if /I not "%ARG1:~0,1%"=="-" (
+    if /I not "%ARG1:~0,1%"=="/" (
+      set "WORKDIR=%ARG1%"
+    )
+  )
 )
-if /I "%TARGET_DIR%"=="." set "TARGET_DIR=%CD%"
 
-if "%RUN_LOCAL%"=="1" (
-  echo Running in local mode.
-) else (
-  echo Running in download mode.
+set "INSTALL_MODE=remote"
+set "PM="
+
+call :header
+call :check_node
+if errorlevel 1 goto :eof
+
+if defined WORKDIR (
+  if exist "%WORKDIR%\package.json" set "INSTALL_MODE=local"
 )
-echo Setup file: %SCRIPT_DIR%
-echo Target folder: %TARGET_DIR%
+
+if not defined WORKDIR (
+  if exist "%~dp0package.json" (
+    set "WORKDIR=%~dp0"
+    set "INSTALL_MODE=local"
+  )
+)
+
+if not defined WORKDIR (
+  if exist "%CD%\package.json" (
+    set "WORKDIR=%CD%"
+    set "INSTALL_MODE=local"
+  )
+)
+
+if /I "%INSTALL_MODE%"=="remote" (
+  if not defined WORKDIR set "WORKDIR=%USERPROFILE%\Downloads\%APP_NAME%\%APP_NAME%-%RANDOM%%RANDOM%"
+)
+
+if /I "%INSTALL_MODE%"=="remote" (
+  call :download_project
+  if errorlevel 1 goto done
+)
+
+if /I "%INSTALL_MODE%"=="local" (
+  if not exist "%WORKDIR%\package.json" (
+    echo [Error] No package.json found in "%WORKDIR%".
+    goto fail
+  )
+)
+
+if not exist "%WORKDIR%" mkdir "%WORKDIR%" >nul
+
+call :set_pm
+if errorlevel 1 goto fail
+
+pushd "%WORKDIR%"
 echo.
-echo This installer will install dependencies and run a build check.
+echo [Step] Installing dependencies (%PM%)...
+if /I "%PM%"=="pnpm" (
+  call %PM% install --ignore-scripts
+) else (
+  call %PM% install --ignore-scripts
+)
+if errorlevel 1 (
+  popd
+  goto install_failed
+)
+echo.
+echo [Step] Verifying build...
+call %PM% run build
+if errorlevel 1 (
+  popd
+  goto build_failed
+)
+popd
+
+echo.
+echo [Done] Wallet installed at "%WORKDIR%".
 echo.
 
+if "%RUN_AFTER_INSTALL%"=="1" (
+  echo Starting app now...
+  start "" cmd /k "cd /d "%WORKDIR%" && %PM% run dev"
+  echo Open %START_URL% in your browser once the dev server is ready.
+) else (
+  echo To start: cd /d "%WORKDIR%" && %PM% run dev
+  echo Then open %START_URL%
+)
+
+goto done
+
+:download_project
+set "TMP_ROOT=%TEMP%\%APP_NAME%-setup-%RANDOM%%RANDOM%"
+set "TMP_ZIP=%TMP_ROOT%\project.zip"
+set "TMP_EXTRACT=%TMP_ROOT%\extract"
+set "EXTRACT_DIR="
+
+if exist "%TMP_ROOT%\." (
+  rmdir /S /Q "%TMP_ROOT%" >nul 2>&1
+)
+
+mkdir "%TMP_ROOT%" >nul 2>&1 || goto download_error
+mkdir "%TMP_EXTRACT%" >nul 2>&1 || goto download_error
+
+echo [Step] Downloading wallet source from GitHub...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Invoke-WebRequest -Uri '%REPO_ZIP%' -OutFile '%TMP_ZIP%'" >nul 2>&1
+if errorlevel 1 goto download_error
+
+if not exist "%TMP_ZIP%" goto download_error
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -Path '%TMP_ZIP%' -DestinationPath '%TMP_EXTRACT%' -Force" >nul 2>&1
+if errorlevel 1 goto download_error
+
+for /D %%F in ("%TMP_EXTRACT%\*") do (
+  if exist "%%F\package.json" (
+    set "EXTRACT_DIR=%%~fF"
+    goto found_extract
+  )
+)
+
+:found_extract
+if not defined EXTRACT_DIR goto download_error
+
+echo [Step] Copying files to "%WORKDIR%"...
+mkdir "%WORKDIR%" >nul 2>&1 || goto download_error
+robocopy "%EXTRACT_DIR%" "%WORKDIR%" /E /COPY:DAT /R:2 /W:2 >nul
+if errorlevel 8 goto download_error
+
+rmdir /S /Q "%TMP_ROOT%" >nul 2>&1
+echo [Done] Download and extract complete.
+set "INSTALL_MODE=local"
+exit /b 0
+
+:header
+echo.
+echo =========================================
+echo   Wallet App - Single File Windows Setup
+echo =========================================
+echo.
+exit /b 0
+
+:check_node
 where node >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Node.js is not installed or not in PATH.
-  echo Install from https://nodejs.org/en/download and rerun.
-  pause
+  echo [Error] Node.js is required but not found in PATH.
+  echo Install Node.js from: https://nodejs.org
   exit /b 1
 )
+exit /b 0
 
-if not exist "%TEMP%" set "TEMP=%USERPROFILE%\AppData\Local\Temp"
-where powershell >nul 2>nul
-if errorlevel 1 (
-  echo [ERROR] PowerShell is required and was not found.
-  pause
-  exit /b 1
-)
-
+:set_pm
 where pnpm >nul 2>nul
 if errorlevel 1 (
-  echo [WARN] pnpm not found.
   where npm >nul 2>nul
   if errorlevel 1 (
-    echo [ERROR] Neither pnpm nor npm is available on PATH.
-    echo Install Node.js LTS (includes npm) and rerun.
-    pause
+    echo [Error] npm is not available in PATH.
     exit /b 1
   )
-)
-
-if "%RUN_LOCAL%"=="1" goto LocalFlow
-goto DownloadFlow
-
-:LocalFlow
-if /I "%TARGET_DIR%"=="%SCRIPT_DIR%" (
-  echo [1/3] Using local folder directly.
-) else (
-  echo [1/3] Copying local files to:
-  echo   %TARGET_DIR%
-  if exist "%TARGET_DIR%" rmdir /s /q "%TARGET_DIR%" >nul 2>&1
-  mkdir "%TARGET_DIR%" >nul
-  xcopy "%SCRIPT_DIR%\*" "%TARGET_DIR%\" /E /I /Y >nul
-  if errorlevel 1 (
-    echo [ERROR] Failed to copy files to %TARGET_DIR%.
-    pause
-    exit /b 1
-  )
-)
-goto InstallAndBuild
-
-:DownloadFlow
-if exist "%WORK_DIR%" rmdir /s /q "%WORK_DIR%" >nul 2>&1
-mkdir "%WORK_DIR%" >nul
-mkdir "%EXTRACT_PATH%" >nul
-
-echo [1/5] Downloading latest source from GitHub...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '%REPO_ZIP_URL%' -OutFile '%ZIP_PATH%'"
-if errorlevel 1 (
-  echo [ERROR] Download failed.
-  pause
-  exit /b 1
-)
-
-echo [2/5] Extracting archive...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%EXTRACT_PATH%' -Force"
-if errorlevel 1 (
-  echo [ERROR] Extract failed.
-  pause
-  exit 1
-)
-
-set "SOURCE_DIR="
-for /f "delims=" %%D in ('dir /ad /b "%EXTRACT_PATH%\%REPO_NAME%-*%REPO_BRANCH%"') do set "SOURCE_DIR=%EXTRACT_PATH%\%%D"
-if not defined SOURCE_DIR (
-  echo [ERROR] Could not find source folder in download.
-  pause
-  exit /b 1
-)
-
-echo [3/5] Copying downloaded project...
-if exist "%TARGET_DIR%" rmdir /s /q "%TARGET_DIR%" >nul 2>&1
-mkdir "%TARGET_DIR%" >nul
-xcopy "%SOURCE_DIR%\*" "%TARGET_DIR%\" /E /I /Y >nul
-if errorlevel 1 (
-  echo [ERROR] Copy after download failed.
-  pause
-  exit /b 1
-)
-goto InstallAndBuild
-
-:InstallAndBuild
-if not exist "%TARGET_DIR%\package.json" (
-  echo [ERROR] package.json not found: %TARGET_DIR%
-  pause
-  exit /b 1
-)
-
-pushd "%TARGET_DIR%"
-if exist pnpm-lock.yaml (
-  set "PM=pnpm"
-) else (
   set "PM=npm"
-)
-
-if "%RUN_LOCAL%"=="1" (
-  echo [2/3] Installing dependencies using %PM%...
 ) else (
-  echo [4/5] Installing dependencies using %PM%...
+  set "PM=pnpm"
 )
-%PM% install --ignore-scripts
-if errorlevel 1 (
-  echo [ERROR] Dependency installation failed.
-  popd
-  pause
-  exit /b 1
-)
+exit /b 0
 
-if "%RUN_LOCAL%"=="1" (
-  echo [3/3] Running build check...
-) else (
-  echo [5/5] Running build check...
-)
-%PM% run build
-if errorlevel 1 (
-  echo [ERROR] Build check failed.
-  popd
-  pause
-  exit /b 1
-)
-
+:download_error
 echo.
-echo Setup complete.
-echo App folder: %TARGET_DIR%
-echo Open: http://localhost:3000
-echo.
-set /p START_APP="Start app now? (Y/N): "
-if /I "%START_APP%"=="Y" (
-  echo Starting dev server...
-  %PM% dev
-)
+echo [Error] Could not download or unpack GitHub project.
+if exist "%TMP_ROOT%" rmdir /S /Q "%TMP_ROOT%" >nul 2>&1
+exit /b 1
 
-popd
-if "%RUN_LOCAL%"=="0" rmdir /s /q "%WORK_DIR%" >nul 2>&1
-pause
+:install_failed
+echo.
+echo [Error] Dependency installation failed. Check your network and rerun.
+goto fail
+
+:build_failed
+echo.
+echo [Error] Build failed.
+goto fail
+
+:fail
+exit /b 1
+
+:done
+echo.
+echo Finished.
 exit /b 0

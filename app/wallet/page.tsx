@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   clearWallet,
+  clearWalletKeyCache,
   hasStoredWallet,
   loadWallet,
   saveWallet,
@@ -115,6 +116,8 @@ function shortTime(value: string): string {
   });
 }
 
+const PAGE_SIZE = 75;
+
 export default function WalletPage() {
   const router = useRouter();
   const [password, setPassword] = useState("");
@@ -128,11 +131,14 @@ export default function WalletPage() {
   const [form, setForm] = useState<FormState>(blankForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("all");
+  const [searchTermInput, setSearchTermInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({});
+  const [page, setPage] = useState(1);
+  const [visibleSecretId, setVisibleSecretId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasExistingVault, setHasExistingVault] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const clearMessageTimerRef = useRef<number | null>(null);
 
   const projects = useMemo(() => {
     const values = new Set(secrets.map((secret) => secret.project));
@@ -146,23 +152,39 @@ export default function WalletPage() {
 
   const filteredSecrets = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    return secrets
-      .filter((secret) => {
-        if (projectFilter !== "all" && secret.project !== projectFilter) {
-          return false;
-        }
-        if (!term) {
-          return true;
-        }
-        const haystack = `${secret.project} ${secret.app} ${secret.name} ${secret.notes ?? ""}`.toLowerCase();
-        return haystack.includes(term);
-      })
-      .sort((a, b) => new Date(b.updatedAt).valueOf() - new Date(a.updatedAt).valueOf());
+    if (projectFilter === "all" && !term) {
+      return secrets;
+    }
+    if (!term) {
+      return secrets.filter((secret) => secret.project === projectFilter);
+    }
+    return secrets.filter((secret) => {
+      if (projectFilter !== "all" && secret.project !== projectFilter) {
+        return false;
+      }
+      const haystack = `${secret.project} ${secret.app} ${secret.name} ${secret.notes ?? ""}`.toLowerCase();
+      return haystack.includes(term);
+    });
   }, [searchTerm, projectFilter, secrets]);
+
+  const visiblePage = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredSecrets.slice(start, start + PAGE_SIZE);
+  }, [filteredSecrets, page]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSecrets.length / PAGE_SIZE));
 
   useEffect(() => {
     setHasExistingVault(hasStoredWallet());
   }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setSearchTerm(searchTermInput);
+      setPage(1);
+    }, 220);
+    return () => window.clearTimeout(timeout);
+  }, [searchTermInput]);
 
   useEffect(() => {
     const session = getCurrentSession();
@@ -175,6 +197,16 @@ export default function WalletPage() {
   }, [router]);
 
   useEffect(() => {
+    setPage(1);
+  }, [searchTerm, projectFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  useEffect(() => {
     const input = importInputRef.current;
     if (!input) {
       return;
@@ -185,7 +217,21 @@ export default function WalletPage() {
   }, []);
 
   const clearMessage = useCallback(() => {
-    window.setTimeout(() => setMessage(null), 2800);
+    if (clearMessageTimerRef.current !== null) {
+      window.clearTimeout(clearMessageTimerRef.current);
+    }
+    clearMessageTimerRef.current = window.setTimeout(() => {
+      setMessage(null);
+      clearMessageTimerRef.current = null;
+    }, 2800);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (clearMessageTimerRef.current !== null) {
+        window.clearTimeout(clearMessageTimerRef.current);
+      }
+    };
   }, []);
 
   const onUnlock = useCallback(async () => {
@@ -200,7 +246,9 @@ export default function WalletPage() {
       const loaded = await loadWallet(password);
       setSecrets(loaded);
       setIsLocked(false);
+      setPage(1);
       setHasExistingVault(true);
+      setVisibleSecretId(null);
       setMessageTone("ok");
       setMessage("Vault unlocked successfully.");
       clearMessage();
@@ -241,22 +289,24 @@ export default function WalletPage() {
       const now = new Date().toISOString();
       let nextSecrets: WalletSecret[];
       if (editingId) {
-        nextSecrets = secrets.map((item) =>
-          item.id === editingId
-            ? {
-                ...item,
-                project: form.project.trim(),
-                app: form.app.trim(),
-                name: form.name.trim(),
-                value: form.value.trim(),
-                notes: form.notes?.trim(),
-                updatedAt: now,
-              }
-            : item
-        );
+        const edited = secrets.find((item) => item.id === editingId);
+        if (!edited) {
+          throw new Error("Secret not found.");
+        }
+        nextSecrets = [
+          {
+            ...edited,
+            project: form.project.trim(),
+            app: form.app.trim(),
+            name: form.name.trim(),
+            value: form.value.trim(),
+            notes: form.notes?.trim(),
+            updatedAt: now,
+          },
+          ...secrets.filter((item) => item.id !== editingId),
+        ];
       } else {
         nextSecrets = [
-          ...secrets,
           {
             id: crypto.randomUUID(),
             project: form.project.trim(),
@@ -267,6 +317,7 @@ export default function WalletPage() {
             createdAt: now,
             updatedAt: now,
           },
+          ...secrets,
         ];
       }
 
@@ -343,6 +394,8 @@ export default function WalletPage() {
     clearWallet();
     setSecrets([]);
     setIsLocked(true);
+    setVisibleSecretId(null);
+    setPage(1);
     setHasExistingVault(false);
     setMessageTone("ok");
     setMessage("Wallet cleared.");
@@ -439,6 +492,8 @@ export default function WalletPage() {
         }
 
         await persist(merged);
+        setPage(1);
+        setVisibleSecretId(null);
         setMessageTone("ok");
         setMessage(`Imported ${added} new secret(s), updated ${updated} secret(s).`);
       } catch (error) {
@@ -523,6 +578,8 @@ export default function WalletPage() {
       }
 
       await persist(merged);
+      setPage(1);
+      setVisibleSecretId(null);
       setMessageTone("ok");
       setMessage(`Clipboard import: added ${added}, updated ${updated}.`);
       clearMessage();
@@ -535,11 +592,23 @@ export default function WalletPage() {
   }, [persist, secrets, clearMessage]);
 
   const onSignOut = useCallback(() => {
+    clearWalletKeyCache();
     logout();
     setIsLocked(true);
     setSecrets([]);
+    setVisibleSecretId(null);
+    setPage(1);
     router.replace("/auth");
   }, [router]);
+
+  const onLock = useCallback(() => {
+    clearWalletKeyCache();
+    setPassword("");
+    setSecrets([]);
+    setVisibleSecretId(null);
+    setPage(1);
+    setIsLocked(true);
+  }, []);
   const messageClass =
     messageTone === "error"
       ? "border-red-400/30 bg-red-400/10 text-red-100"
@@ -625,7 +694,7 @@ export default function WalletPage() {
             Sign Out
             </button>
             <button
-              onClick={() => setIsLocked(true)}
+            onClick={onLock}
               className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
             >
               Lock Wallet
@@ -804,12 +873,15 @@ export default function WalletPage() {
               </option>
             ))}
           </select>
-          <input
-            className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-gray-200"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search project, app, secret name or notes"
-          />
+            <input
+              className="flex-1 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-gray-200"
+              value={searchTermInput}
+              onChange={(event) => setSearchTermInput(event.target.value)}
+              placeholder="Search project, app, secret name or notes"
+            />
+            <div className="text-xs text-gray-400">
+              Showing page {page} of {totalPages}
+            </div>
         </div>
 
         <div className="mt-4 overflow-x-auto">
@@ -818,6 +890,7 @@ export default function WalletPage() {
               No secrets found for this filter.
             </div>
           ) : (
+            <>
             <table className="min-w-full table-fixed border-separate border-spacing-0">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-[0.12em] text-gray-400">
@@ -830,8 +903,8 @@ export default function WalletPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredSecrets.map((secret) => {
-                  const isRevealed = visibleSecrets[secret.id] ?? false;
+                {visiblePage.map((secret) => {
+                  const isRevealed = visibleSecretId === secret.id;
                   const masked = "*".repeat(Math.min(18, Math.max(6, secret.value.length || 6)));
                   return (
                     <tr key={secret.id} className="border-t border-white/10">
@@ -856,7 +929,7 @@ export default function WalletPage() {
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
                           <button
-                            onClick={() => setVisibleSecrets((prev) => ({ ...prev, [secret.id]: !isRevealed }))}
+                            onClick={() => setVisibleSecretId((current) => (current === secret.id ? null : secret.id))}
                             className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10"
                           >
                             {isRevealed ? "Hide" : "Reveal"}
@@ -886,6 +959,23 @@ export default function WalletPage() {
                 })}
               </tbody>
             </table>
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+              <button
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={page === 1}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <button
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={page === totalPages}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+            </>
           )}
         </div>
       </section>
