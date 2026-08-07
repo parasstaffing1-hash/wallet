@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearPasswordKeyCache, clearPasswords, hasStoredPasswords, loadPasswords, PasswordEntry, savePasswords } from "../../lib/passwords";
 import { getCurrentSession, logout } from "../../lib/auth";
@@ -324,29 +324,31 @@ export default function PasswordManagerPage() {
           </p>
           <p className="mt-2 text-xs text-gray-400">Signed in as {username}</p>
           {message && <p className={`mt-4 rounded-xl border p-3 text-sm ${messageClass}`}>{message}</p>}
-          <label className="mt-5 block text-sm font-medium text-gray-300" htmlFor="pmPassword">
-            Master Password
-          </label>
-          <input
-            id="pmPassword"
-            type="password"
-            className={fieldClass}
-            value={masterPassword}
-            onChange={(event) => setMasterPassword(event.target.value)}
-            placeholder="Enter password..."
-            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-              if (event.key === "Enter") {
-                onUnlock();
-              }
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onUnlock();
             }}
-          />
-          <button
-            onClick={onUnlock}
-            disabled={isBusy}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 font-semibold text-white shadow-lg shadow-cyan-500/30 transition disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isBusy ? "Unlocking..." : "Unlock Password Manager"}
-          </button>
+            <label className="mt-5 block text-sm font-medium text-gray-300" htmlFor="pmPassword">
+              Master Password
+            </label>
+            <input
+              id="pmPassword"
+              type="password"
+              className={fieldClass}
+              value={masterPassword}
+              onChange={(event) => setMasterPassword(event.target.value)}
+              placeholder="Enter password..."
+            />
+            <button
+              type="submit"
+              disabled={isBusy}
+              className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 font-semibold text-white shadow-lg shadow-cyan-500/30 transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isBusy ? "Unlocking..." : "Unlock Password Manager"}
+            </button>
+          </form>
         </div>
       </section>
     );

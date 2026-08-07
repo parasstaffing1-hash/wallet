@@ -820,24 +820,31 @@ export default function WalletPage() {
             </div>
           )}
           {message && <p className={`mt-4 rounded-xl border p-3 text-sm ${messageClass}`}>{message}</p>}
-          <label className="mt-6 block text-sm font-medium text-slate-700" htmlFor="masterPassword">
-            Master Password
-          </label>
-          <input
-            id="masterPassword"
-            type="password"
-            className={`${inputClass}`}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Enter password..."
-          />
-          <button
-            onClick={onUnlock}
-            disabled={isBusy}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#0a66c2] px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onUnlock();
+            }}
           >
-            {isBusy ? "Unlocking..." : "Unlock Wallet"}
-          </button>
+            <label className="mt-6 block text-sm font-medium text-slate-700" htmlFor="masterPassword">
+              Master Password
+            </label>
+            <input
+              id="masterPassword"
+              type="password"
+              className={`${inputClass}`}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Enter password..."
+            />
+            <button
+              type="submit"
+              disabled={isBusy}
+              className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#0a66c2] px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isBusy ? "Unlocking..." : "Unlock Wallet"}
+            </button>
+          </form>
         </div>
       </section>
     );

@@ -89,6 +89,12 @@ export default function AuthPage() {
           </p>
         )}
 
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onSubmit();
+          }}
+        >
         <div className="mt-5">
           <label className="text-sm text-gray-300" htmlFor="username">
             Username
@@ -136,7 +142,7 @@ export default function AuthPage() {
 
         <div className="mt-6 flex flex-wrap gap-3">
           <button
-            onClick={onSubmit}
+            type="submit"
             disabled={isBusy}
             className="inline-flex h-11 items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/30 transition disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -152,6 +158,7 @@ export default function AuthPage() {
             </button>
           )}
         </div>
+        </form>
       </section>
     </main>
   );
