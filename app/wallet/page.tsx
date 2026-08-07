@@ -26,7 +26,50 @@ const blankForm: FormState = {
 };
 
 const inputClass =
-  "mt-2 w-full rounded-xl border border-white/12 bg-white/[0.05] px-3.5 py-2.5 text-sm text-gray-100 outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/20";
+  "mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20";
+
+const MAX_SCAN_FILE_BYTES = 1024 * 1024;
+const SCAN_SKIP_DIRECTORIES = new Set([
+  ".git",
+  ".next",
+  "node_modules",
+  "dist",
+  "build",
+  "target",
+  "coverage",
+  "vendor",
+  "out",
+  "site",
+]);
+const SCAN_TEXT_EXTENSIONS = new Set([
+  ".bash",
+  ".cjs",
+  ".conf",
+  ".config",
+  ".cs",
+  ".go",
+  ".ini",
+  ".java",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".php",
+  ".properties",
+  ".ps1",
+  ".py",
+  ".rb",
+  ".rs",
+  ".sh",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
+const LIKELY_SECRET_KEY = /(api[_-]?key|apikey|secret|token|password|passwd|private[_-]?key|client[_-]?secret|access[_-]?key|auth|credential|database[_-]?(url|password|user)|dsn|webhook|signing|encryption|jwt|bearer|oauth)/i;
+const PLACEHOLDER_SECRET_VALUE = /^(?:your[_-]?|replace[_-]?|change[_-]?|example|sample|dummy|placeholder|todo|fixme|undefined|null|true|false|\$\{|<|\[)/i;
 
 function stripValueWrapper(value: string): string {
   if (
@@ -78,11 +121,68 @@ function parseJsonContent(content: string): SecretRecord[] {
   }
 }
 
-function shouldParseAsJson(filename: string): boolean {
-  return (
-    filename.toLowerCase().endsWith(".json") &&
-    /(secret|api[_-]?key|apikey|token|credential|env|vault)/i.test(filename)
-  );
+function parseJsonSecrets(content: string): SecretRecord[] {
+  try {
+    const payload = JSON.parse(content);
+    const parsed: SecretRecord[] = [];
+    const walk = (value: unknown) => {
+      if (!value || typeof value !== "object") {
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(walk);
+        return;
+      }
+      for (const [key, child] of Object.entries(value)) {
+        if (
+          (typeof child === "string" || typeof child === "number" || typeof child === "boolean") &&
+          isLikelySecretPair(key, String(child))
+        ) {
+          parsed.push({ key, value: String(child) });
+        } else if (child && typeof child === "object") {
+          walk(child);
+        }
+      }
+    };
+    walk(payload);
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+function parseAssignmentContent(content: string): SecretRecord[] {
+  const parsed: SecretRecord[] = [];
+  const assignmentPattern =
+    /(?:^|\r?\n)\s*(?:export\s+)?(?:(?:const|let|var)\s+)?([A-Za-z_][\w.-]{1,100})\s*(?:=|:)\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|`([^`\r\n]*)`|([^#;\r\n]+))/g;
+  for (const match of content.matchAll(assignmentPattern)) {
+    const key = match[1]?.trim();
+    const value = (match[2] ?? match[3] ?? match[4] ?? match[5] ?? "").trim();
+    if (key && value && isLikelySecretPair(key, value)) {
+      parsed.push({ key, value: stripValueWrapper(value) });
+    }
+  }
+  return parsed;
+}
+
+function isLikelySecretPair(key: string, value: string): boolean {
+  const normalizedValue = stripValueWrapper(value.trim());
+  if (!LIKELY_SECRET_KEY.test(key) || normalizedValue.length < 8) {
+    return false;
+  }
+  return !PLACEHOLDER_SECRET_VALUE.test(normalizedValue);
+}
+
+function shouldScanFile(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  if (lower === ".env" || lower.startsWith(".env.")) {
+    return true;
+  }
+  const lastDot = lower.lastIndexOf(".");
+  if (lastDot === -1) {
+    return true;
+  }
+  return SCAN_TEXT_EXTENSIONS.has(lower.slice(lastDot));
 }
 
 function inferProjectFromPath(relativePath: string): string {
@@ -137,6 +237,7 @@ export default function WalletPage() {
   const [visibleSecretId, setVisibleSecretId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasExistingVault, setHasExistingVault] = useState(false);
+  const [scanSummary, setScanSummary] = useState<{ scanned: number; found: number; skipped: number } | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const clearMessageTimerRef = useRef<number | null>(null);
 
@@ -414,24 +515,42 @@ export default function WalletPage() {
 
       setIsBusy(true);
       setMessage(null);
+      setScanSummary(null);
 
       try {
         const now = new Date().toISOString();
         const collected: ImportableSecret[] = [];
+        const seenInScan = new Set<string>();
+        let scannedFiles = 0;
+        let skippedFiles = 0;
         for (const file of selectedFiles) {
           const relativePath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name).replace(
             /\\/g,
             "/"
           );
           const filename = file.name.toLowerCase();
-          const isEnvFile = filename === ".env" || filename.startsWith(".env.");
-          const shouldParse = isEnvFile || shouldParseAsJson(filename);
-          if (!shouldParse) {
+          const pathParts = relativePath.split("/").filter(Boolean);
+          if (
+            file.size > MAX_SCAN_FILE_BYTES ||
+            !shouldScanFile(filename) ||
+            pathParts.some((part) => SCAN_SKIP_DIRECTORIES.has(part.toLowerCase()))
+          ) {
+            skippedFiles++;
             continue;
           }
 
+          scannedFiles++;
           const content = await file.text();
-          const parsed = isEnvFile || filename.startsWith(".env.") ? parseEnvContent(content) : parseJsonContent(content);
+          if (content.includes("\u0000")) {
+            skippedFiles++;
+            continue;
+          }
+          const isEnvFile = filename === ".env" || filename.startsWith(".env.");
+          const parsed = isEnvFile
+            ? parseEnvContent(content).filter((pair) => isLikelySecretPair(pair.key, pair.value))
+            : filename.endsWith(".json")
+              ? parseJsonSecrets(content)
+              : parseAssignmentContent(content);
           if (!parsed.length) {
             continue;
           }
@@ -442,9 +561,11 @@ export default function WalletPage() {
           for (const pair of parsed) {
             const secretName = pair.key.trim();
             const secretValue = pair.value.trim();
-            if (!secretName || !secretValue) {
+            const scanKey = keyForSecret({ project, app, name: secretName });
+            if (!secretName || !secretValue || seenInScan.has(scanKey)) {
               continue;
             }
+            seenInScan.add(scanKey);
             collected.push({
               project,
               app,
@@ -455,9 +576,12 @@ export default function WalletPage() {
           }
         }
 
+        setScanSummary({ scanned: scannedFiles, found: collected.length, skipped: skippedFiles });
         if (!collected.length) {
           setMessageTone("error");
-          setMessage("No supported secret files found in that folder.");
+          setMessage(
+            `I scanned ${scannedFiles} file(s), but did not find likely secrets. Try a project folder with .env or config files.`
+          );
           return;
         }
 
@@ -495,7 +619,7 @@ export default function WalletPage() {
         setPage(1);
         setVisibleSecretId(null);
         setMessageTone("ok");
-        setMessage(`Imported ${added} new secret(s), updated ${updated} secret(s).`);
+        setMessage(`Found ${collected.length} secret(s). Added ${added} and updated ${updated}.`);
       } catch (error) {
         setMessageTone("error");
         setMessage(error instanceof Error ? error.message : "Failed to import from folder.");
@@ -611,38 +735,38 @@ export default function WalletPage() {
   }, []);
   const messageClass =
     messageTone === "error"
-      ? "border-red-400/30 bg-red-400/10 text-red-100"
+      ? "border-red-200 bg-red-50 text-red-700"
       : messageTone === "ok"
-        ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
-        : "border-sky-300/20 bg-sky-300/10 text-sky-100";
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-blue-200 bg-blue-50 text-blue-700";
 
   if (isLocked) {
     if (!isAuthChecked) {
       return (
-        <section className="mx-auto max-w-2xl">
-          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-7 shadow-2xl shadow-black/30 backdrop-blur">
-            <p className="text-sm text-gray-300">Checking session...</p>
+        <section className="wallet-page mx-auto max-w-2xl">
+          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+            <p className="text-sm text-slate-500">Checking session...</p>
           </div>
         </section>
       );
     }
     return (
-      <section className="mx-auto max-w-2xl">
-        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-7 shadow-2xl shadow-black/30 backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300">Secure Access</p>
-          <h1 className="mt-3 text-3xl font-semibold">Project API Vault</h1>
-          <p className="mt-2 text-sm text-gray-300">
+      <section className="wallet-page mx-auto max-w-2xl">
+        <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#0a66c2]">Secure Access</p>
+          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Project API Vault</h1>
+          <p className="mt-2 text-sm text-slate-600">
             Unlock your local vault to add, edit, and filter secrets across projects. Data stays in your browser and is encrypted with your
             master password.
           </p>
-          <p className="mt-2 text-xs text-gray-400">Signed in as {username}</p>
+          <p className="mt-2 text-xs text-slate-500">Signed in as {username}</p>
           {!hasExistingVault && (
-            <div className="mt-4 rounded-xl border border-cyan-300/30 bg-cyan-300/10 p-3 text-sm text-cyan-100">
+            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
               No existing vault found. Set any password to create one.
             </div>
           )}
           {message && <p className={`mt-4 rounded-xl border p-3 text-sm ${messageClass}`}>{message}</p>}
-          <label className="mt-6 block text-sm font-medium text-gray-300" htmlFor="masterPassword">
+          <label className="mt-6 block text-sm font-medium text-slate-700" htmlFor="masterPassword">
             Master Password
           </label>
           <input
@@ -656,7 +780,7 @@ export default function WalletPage() {
           <button
             onClick={onUnlock}
             disabled={isBusy}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 font-semibold text-white shadow-lg shadow-cyan-500/30 transition disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#0a66c2] px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isBusy ? "Unlocking..." : "Unlock Wallet"}
           </button>
@@ -666,42 +790,42 @@ export default function WalletPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="wallet-page space-y-6">
       <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl shadow-black/30">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300">Workspace</p>
-            <h1 className="mt-1 text-3xl font-semibold">Project API Wallet</h1>
-            <p className="mt-2 text-sm text-gray-300">Manage API keys, tokens, and secrets by project and app.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#0a66c2]">Workspace</p>
+            <h1 className="mt-1 text-3xl font-semibold text-slate-900">Project API Wallet</h1>
+            <p className="mt-2 text-sm text-slate-600">Keep every project secret in one simple, private place.</p>
           </div>
         <div className="flex items-center gap-2">
           <Link
             href="/passwords"
-            className="rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-300/20"
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-[#0a66c2] hover:bg-blue-100"
           >
             Password Manager
           </Link>
           <Link
             href="/settings"
-            className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
           >
             Settings
           </Link>
           <button
             onClick={onSignOut}
-            className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
           >
             Sign Out
             </button>
             <button
             onClick={onLock}
-              className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
             >
               Lock Wallet
             </button>
             <button
               onClick={onClearVault}
-              className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm text-red-100 hover:bg-red-500/20"
+              className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 hover:bg-red-100"
             >
               Clear Vault
             </button>
@@ -732,26 +856,34 @@ export default function WalletPage() {
 
       <section className="grid gap-6 lg:grid-cols-5">
         <article className="lg:col-span-2 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-          <p className="text-sm font-semibold text-gray-200">Import secrets from folder</p>
-          <p className="mt-2 text-sm text-gray-400">
-            Upload a folder; we automatically parse <code>.env</code>, <code>.env.*</code>, and JSON files containing key/value pairs.
+          <p className="text-sm font-semibold text-slate-900">Find secrets automatically</p>
+          <p className="mt-2 text-sm text-slate-600">
+            Choose a project folder and Wallet will look through common config files for API keys, tokens, passwords, and other secrets.
+            It skips dependency folders and keeps everything on this computer.
           </p>
+          <p className="mt-3 text-xs font-medium text-slate-500">Looks in .env, JSON, YAML, TOML, and source config files.</p>
           <button
             type="button"
             onClick={openFolderPicker}
             disabled={isBusy}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#0a66c2] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isBusy ? "Importing..." : "Import All Secrets"}
+            {isBusy ? "Scanning folder..." : "Choose folder to scan"}
           </button>
           <button
             type="button"
             onClick={onImportClipboard}
             disabled={isBusy}
-            className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isBusy ? "Reading clipboard..." : "Paste & import from clipboard"}
           </button>
+          {scanSummary && (
+            <p className="mt-3 text-xs text-slate-500">
+              Last scan: {scanSummary.scanned} file(s) checked, {scanSummary.found} secret(s) found
+              {scanSummary.skipped ? `, ${scanSummary.skipped} skipped` : ""}.
+            </p>
+          )}
           <input ref={importInputRef} type="file" className="hidden" onChange={onImportFolder} />
         </article>
 

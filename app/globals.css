@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -12,8 +12,8 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #020617;
-  color: #e2e8f0;
+  background-color: #f3f6f8;
+  color: #172b4d;
 }
 
 * {
@@ -25,4 +25,71 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: #d9ebff;
+  color: #0a66c2;
+}
+
+/* Keep the existing component markup readable while presenting a calm, light wallet UI. */
+.app-theme {
+  color: #172b4d;
+}
+
+.app-theme [class*="bg-slate-950"] {
+  background-color: #ffffff !important;
+}
+
+.app-theme [class*="bg-white/"] {
+  background-color: #ffffff !important;
+}
+
+.app-theme [class*="border-white/"] {
+  border-color: #dbe3ea !important;
+}
+
+.app-theme [class*="text-gray-100"] {
+  color: #172b4d !important;
+}
+
+.app-theme [class*="text-gray-200"] {
+  color: #334e68 !important;
+}
+
+.app-theme [class*="text-gray-300"] {
+  color: #486581 !important;
+}
+
+.app-theme [class*="text-gray-400"] {
+  color: #627d98 !important;
+}
+
+.app-theme [class*="text-cyan-"] {
+  color: #0a66c2 !important;
+}
+
+.app-theme [class*="border-cyan-"] {
+  border-color: #9cc7ee !important;
+}
+
+.app-theme [class*="bg-cyan-"] {
+  background-color: #eaf4ff !important;
+}
+
+.app-theme [class*="bg-gradient-to-r"] {
+  background-image: none !important;
+  background-color: #0a66c2 !important;
+}
+
+.app-theme input,
+.app-theme textarea,
+.app-theme select {
+  border-color: #cbd5e1;
+  background-color: #ffffff;
+  color: #172b4d;
 }
