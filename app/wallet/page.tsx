@@ -212,6 +212,17 @@ function inferFolderFromPath(relativePath: string): string {
   return parts.length > 0 ? parts[0] : "General";
 }
 
+function inferFolderFromScan(scanFiles: ScanInputFile[]): string {
+  const firstParts = scanFiles
+    .map((file) => file.relativePath.replace(/\\/g, "/").split("/").filter(Boolean)[0])
+    .filter(Boolean);
+  const commonRoot = firstParts[0];
+  if (commonRoot && firstParts.every((part) => part === commonRoot) && !shouldScanFile(commonRoot)) {
+    return commonRoot;
+  }
+  return "General";
+}
+
 function inferAppFromPath(relativePath: string): string {
   const parts = relativePath.split("/").filter(Boolean);
   if (parts.length <= 2) {
@@ -486,6 +497,53 @@ export default function WalletPage() {
     }, 0);
   }, []);
 
+  const groupImportedSecrets = useCallback(
+    async (targetFolder: string) => {
+      const target = targetFolder.trim() || "General";
+      const imported = secrets.filter(
+        (secret) =>
+          secret.folder !== target &&
+          Boolean(secret.notes?.toLowerCase().startsWith("imported from ")) &&
+          !secret.notes?.toLowerCase().includes("clipboard")
+      );
+      if (!imported.length) {
+        setMessageTone("info");
+        setMessage(`No imported file secrets are waiting outside ${target}.`);
+        clearMessage();
+        return;
+      }
+      const confirmed = window.confirm(`Move ${imported.length} imported secret(s) into the ${target} folder?`);
+      if (!confirmed) {
+        return;
+      }
+      setIsBusy(true);
+      try {
+        const now = new Date().toISOString();
+        const nextSecrets = secrets.map((secret) =>
+          imported.some((item) => item.id === secret.id)
+            ? { ...secret, folder: target, updatedAt: now }
+            : secret
+        );
+        await persist(nextSecrets);
+        rememberFolder(target);
+        setFolderFilter(target);
+        setProjectFilter("all");
+        setSearchTermInput("");
+        setSearchTerm("");
+        setPage(1);
+        setMessageTone("ok");
+        setMessage(`Grouped ${imported.length} imported secret(s) into ${target}.`);
+        clearMessage();
+      } catch (error) {
+        setMessageTone("error");
+        setMessage(error instanceof Error ? error.message : "Failed to group imported secrets.");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [clearMessage, persist, rememberFolder, secrets]
+  );
+
   const onSave = useCallback(async () => {
     if (!form.project.trim() || !form.app.trim() || !form.name.trim() || !form.value.trim()) {
       setMessageTone("error");
@@ -660,7 +718,7 @@ export default function WalletPage() {
         const now = new Date().toISOString();
         const collected: ImportableSecret[] = [];
         const seenInScan = new Set<string>();
-        const selectedFolder = inferFolderFromPath(scanFiles[0].relativePath);
+        const selectedFolder = inferFolderFromScan(scanFiles);
         let scannedFiles = 0;
         let skippedFiles = 0;
         for (const file of scanFiles) {
@@ -1274,6 +1332,14 @@ export default function WalletPage() {
                     className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                   >
                     Add secret here
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void groupImportedSecrets(name)}
+                    disabled={isBusy}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0a66c2] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Group imports here
                   </button>
                 </div>
               </article>
