@@ -5,12 +5,17 @@ on:
   push:
     paths:
       - "app/**"
-      - "components/**"
       - "lib/**"
+      - "scripts/**"
       - "src-tauri/**"
       - "package.json"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "next.config.mjs"
+      - "next-env.d.ts"
+      - "postcss.config.cjs"
+      - "tailwind.config.ts"
+      - "tsconfig.json"
       - ".eslintrc.json"
       - ".eslintignore"
       - ".github/workflows/build-desktop.yml"

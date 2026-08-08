@@ -1,54 +1,56 @@
-# Wallet
+# Wallet · Secure API Vault
 
-Wallet is an offline-first Windows desktop vault for project API keys, environment secrets, PEM/SSH material, and passwords. It has no hosted backend and does not send vault contents over the network.
+Wallet is a local-first Windows vault for project API keys, environment secrets, PEM/SSH material, and passwords. It is designed for people who want one simple place to keep credentials without sending them to a hosted backend.
 
-## Release build
+## Download
 
-The Windows release is a single NSIS installer. It embeds the WebView2 runtime so a clean Windows machine can install without an internet connection.
+Download the [Windows installer](https://github.com/parasstaffing1-hash/wallet/raw/main/Wallet-Desktop-Setup.exe) and verify its [SHA-256 checksum](https://github.com/parasstaffing1-hash/wallet/blob/main/Wallet-Desktop-Setup.exe.sha256) before sharing it.
+
+The installer includes the offline WebView2 runtime, so a clean Windows machine does not need Node.js, pnpm, or a separate server. The current release is unsigned; configure the CI certificate secrets before public distribution to remove the SmartScreen warning.
+
+## Product surface
+
+- API Vault with project folders, search, favorites, notes, and one-click copy.
+- Password Manager for website credentials with generated strong passwords.
+- Folder scanning for `.env`, `.env.*`, JSON assignments, PEM, SSH, and common config files.
+- Encrypted import/export, local account creation, automatic locking, and clipboard clearing.
+- Offline-first operation: vault contents never leave the device.
+
+## Build from source
 
 ```powershell
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm check:production
+pnpm audit:dependencies
 pnpm exec tsc --noEmit
+pnpm lint
+pnpm test:crypto
 pnpm build
 pnpm desktop:build -- --ci
 ```
 
-The installer is generated at `src-tauri/target/release/bundle/nsis/`. The CI workflow also publishes a SHA-256 checksum for the installer.
-The checked-in release artifact is `Wallet-Desktop-Setup.exe`; verify it against `Wallet-Desktop-Setup.exe.sha256` before sharing.
+The installer is generated at `src-tauri/target/release/bundle/nsis/`. Local development uses `pnpm dev`; the native shell uses `pnpm desktop:dev` after `pnpm build`.
 
-## Local development
+## Repository layout
 
-```powershell
-pnpm install --frozen-lockfile --ignore-scripts
-pnpm dev
-```
+| Path | Purpose |
+| --- | --- |
+| `app/` | Wallet, password manager, settings, and authentication UI |
+| `lib/` | Encryption, Stronghold storage, authentication, and generators |
+| `src-tauri/` | Native Windows shell, secure scanner, permissions, and CSP |
+| `scripts/` | Production checks, crypto tests, and scale benchmarks |
+| `.github/workflows/` | Audited Windows release pipeline |
 
-For the native shell:
-
-```powershell
-pnpm build
-pnpm desktop:dev
-```
+Generated folders such as `node_modules/`, `.next/`, `out/`, and `src-tauri/target/` are intentionally ignored and are not part of the release source.
 
 ## Security model
 
-- On the Windows desktop build, encrypted wallet and password vault blobs are stored in Tauri Stronghold, protected by the vault password and Argon2-derived Stronghold snapshot keys.
-- The vault payloads use AES-256-GCM with a unique random IV and PBKDF2-HMAC-SHA-256 (310,000 iterations) key derivation. Older 50,000-iteration vaults are upgraded after a successful unlock.
-- Existing browser-only data is migrated into Stronghold the first time a desktop vault is unlocked. The browser build keeps its encrypted localStorage fallback for offline use.
-- The app CSP is restrictive, native permissions are scoped to the main window, and the folder scanner skips symlinks, build/dependency folders, binary files, oversized files, and oversized projects.
-- Backups remain encrypted blobs. Exporting or importing on desktop requires the relevant vault password; the app never exports plaintext secrets.
+- Desktop vault blobs are stored in Tauri Stronghold and protected by Argon2-derived snapshot keys.
+- Payloads use AES-256-GCM with random IVs and PBKDF2-HMAC-SHA-256 with 310,000 iterations; legacy vaults are upgraded after unlock.
+- The scanner skips symlinks, dependency/build folders, binary files, oversized files, deep trees, and oversized projects.
+- The desktop CSP and native capability set are minimal. Backups remain encrypted and require the vault passwords to restore.
+- Run `pnpm check:production`, `pnpm audit:dependencies`, and `pnpm stress:test -- --wallet 100000 --passwords 100000` before a release.
 
-## Production checklist
+## Offline accounts
 
-Run `pnpm check:production` before shipping. For a release build, also run the stress benchmark with a representative dataset:
-
-```powershell
-pnpm stress:test -- --wallet 100000 --passwords 100000
-```
-
-The installer should be code-signed with the publisher's Windows Authenticode certificate before distribution. CI signs it automatically when the `WINDOWS_CERTIFICATE_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD` repository secrets are configured. This repository does not contain a private signing certificate; the checked-in installer is therefore unsigned and may show a Windows SmartScreen warning until you publish a signed build.
-
-## Offline account
-
-Account creation and login work without a server or internet connection. The account password is never stored; only a salted PBKDF2 verifier and a short-lived local session are retained.
+Account creation and login work without a server. The account password is never stored; only a salted PBKDF2 verifier and a short-lived local session are retained.
