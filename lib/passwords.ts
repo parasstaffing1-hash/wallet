@@ -1,3 +1,5 @@
+import { hasSecureValue, isDesktopApp, readSecureValue, removeSecureValue, writeSecureValue } from "./secure-storage";
+
 export interface PasswordEntry {
   id: string;
   title: string;
@@ -18,6 +20,14 @@ interface EncryptedPasswordVault {
 }
 
 const PASSWORDS_STORAGE_KEY = "vaultflow-passwords:v1";
+const PASSWORDS_PRESENT_KEY = "vaultflow-passwords:present";
+const SECURE_STORAGE = {
+  storageKey: PASSWORDS_STORAGE_KEY,
+  markerKey: PASSWORDS_PRESENT_KEY,
+  clientName: "passwords",
+  recordKey: "encrypted-passwords",
+  snapshotName: "password-vault",
+} as const;
 const PASSWORD_ENCRYPTION_VERSION = 1;
 const LEGACY_PBKDF2_ITERATIONS = 50000;
 const PBKDF2_ITERATIONS = 310000;
@@ -51,23 +61,20 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-function getStoredVaultBlob(): EncryptedPasswordVault | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const raw = window.localStorage.getItem(PASSWORDS_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as EncryptedPasswordVault;
-  } catch {
-    return null;
-  }
+export function hasStoredPasswords(): boolean {
+  return hasSecureValue(SECURE_STORAGE);
 }
 
-export function hasStoredPasswords(): boolean {
-  return getStoredVaultBlob() !== null;
+export async function readPasswordsBackup(password: string): Promise<string | null> {
+  return readSecureValue(SECURE_STORAGE, password);
+}
+
+export async function writePasswordsBackup(password: string, value: string | null): Promise<void> {
+  if (value === null) {
+    await removeSecureValue(SECURE_STORAGE, password);
+    return;
+  }
+  await writeSecureValue(SECURE_STORAGE, password, value);
 }
 
 function getDerivedKey(password: string, salt: Uint8Array, iterations = PBKDF2_ITERATIONS): Promise<CryptoKey> {
@@ -102,8 +109,13 @@ function getDerivedKey(password: string, salt: Uint8Array, iterations = PBKDF2_I
   });
 }
 
-function getSaltAndBlob() {
-  const blob = getStoredVaultBlob();
+function getSaltAndBlob(rawValue: string | null) {
+  let blob: EncryptedPasswordVault | null = null;
+  try {
+    blob = rawValue ? (JSON.parse(rawValue) as EncryptedPasswordVault) : null;
+  } catch {
+    blob = null;
+  }
   if (!blob?.salt || !blob.iv || !blob.data) {
     return { blob: null, salt: null };
   }
@@ -115,9 +127,20 @@ export async function loadPasswords(password: string): Promise<PasswordEntry[]> 
     return [];
   }
 
-  const blob = getStoredVaultBlob();
-  if (!blob) {
+  let rawValue: string | null;
+  try {
+    rawValue = await readSecureValue(SECURE_STORAGE, password);
+  } catch {
+    throw new Error("Invalid password or inaccessible secure password storage.");
+  }
+  if (!rawValue) {
     return [];
+  }
+  let blob: EncryptedPasswordVault;
+  try {
+    blob = JSON.parse(rawValue) as EncryptedPasswordVault;
+  } catch {
+    throw new Error("Password vault is corrupted.");
   }
   if (!blob.salt || !blob.iv || !blob.data) {
     throw new Error("Password vault is corrupted.");
@@ -132,13 +155,19 @@ export async function loadPasswords(password: string): Promise<PasswordEntry[]> 
     const plainText = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherText);
     const decoded = decoder.decode(new Uint8Array(plainText));
     if (decoded.trim() === "") {
+      if (isDesktopApp() && window.localStorage.getItem(PASSWORDS_STORAGE_KEY) !== null) {
+        await writeSecureValue(SECURE_STORAGE, password, rawValue);
+      }
       return [];
     }
     const secrets = JSON.parse(decoded) as PasswordEntry[];
     if (!Array.isArray(secrets)) {
+      if (isDesktopApp() && window.localStorage.getItem(PASSWORDS_STORAGE_KEY) !== null) {
+        await writeSecureValue(SECURE_STORAGE, password, rawValue);
+      }
       return [];
     }
-    return secrets.sort((a, b) => {
+    const normalized = secrets.sort((a, b) => {
       const aTime = Date.parse(a.updatedAt);
       const bTime = Date.parse(b.updatedAt);
       if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) {
@@ -146,6 +175,10 @@ export async function loadPasswords(password: string): Promise<PasswordEntry[]> 
       }
       return bTime - aTime;
     });
+    if (isDesktopApp() && window.localStorage.getItem(PASSWORDS_STORAGE_KEY) !== null) {
+      await writeSecureValue(SECURE_STORAGE, password, rawValue);
+    }
+    return normalized;
   } catch {
     cachedKey = null;
     throw new Error("Invalid password or corrupted password vault.");
@@ -157,7 +190,20 @@ export async function savePasswords(password: string, secrets: PasswordEntry[]):
     return;
   }
 
-  const existing = getSaltAndBlob();
+  const existing = getSaltAndBlob(await readSecureValue(SECURE_STORAGE, password));
+  if (existing.blob && existing.salt) {
+    try {
+      const existingKey = await getDerivedKey(password, existing.salt, existing.blob.iterations ?? LEGACY_PBKDF2_ITERATIONS);
+      await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: base64ToBytes(existing.blob.iv) },
+        existingKey,
+        base64ToBytes(existing.blob.data)
+      );
+    } catch {
+      clearPasswordKeyCache();
+      throw new Error("Invalid password or corrupted password vault.");
+    }
+  }
   const salt = existing.salt ?? window.crypto.getRandomValues(new Uint8Array(16));
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const key = await getDerivedKey(password, salt);
@@ -173,14 +219,12 @@ export async function savePasswords(password: string, secrets: PasswordEntry[]):
     data: bytesToBase64(new Uint8Array(cipherText)),
   };
 
-  window.localStorage.setItem(PASSWORDS_STORAGE_KEY, JSON.stringify(blob));
+  await writeSecureValue(SECURE_STORAGE, password, JSON.stringify(blob));
 }
 
-export function clearPasswords(): void {
+export async function clearPasswords(password?: string): Promise<void> {
   clearPasswordKeyCache();
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem(PASSWORDS_STORAGE_KEY);
-  }
+  await removeSecureValue(SECURE_STORAGE, password);
 }
 
 export function clearPasswordKeyCache(): void {

@@ -842,22 +842,30 @@ export default function WalletPage() {
 
   const valueStrength = useMemo(() => getPasswordStrength(form.value), [form.value]);
 
-  const onClearVault = () => {
+  const onClearVault = async () => {
     const ok = window.confirm("This removes all local vault data and locks immediately.");
     if (!ok) {
       return;
     }
-    clearWallet();
-    setSecrets([]);
-    setCustomFolders([]);
-    setNewFolderName("");
-    setIsLocked(true);
-    setVisibleSecretId(null);
-    setPage(1);
-    setHasExistingVault(false);
-    setMessageTone("ok");
-    setMessage("Wallet cleared.");
-    clearMessage();
+    setIsBusy(true);
+    try {
+      await clearWallet(password);
+      setSecrets([]);
+      setCustomFolders([]);
+      setNewFolderName("");
+      setIsLocked(true);
+      setVisibleSecretId(null);
+      setPage(1);
+      setHasExistingVault(false);
+      setMessageTone("ok");
+      setMessage("Wallet cleared.");
+      clearMessage();
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to clear the wallet.");
+    } finally {
+      setIsBusy(false);
+    }
   };
 
   const importFolderFiles = useCallback(
@@ -1258,7 +1266,7 @@ export default function WalletPage() {
               Lock Wallet
             </button>
             <button
-              onClick={onClearVault}
+              onClick={() => void onClearVault()}
               className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 hover:bg-red-100"
             >
               Clear Vault

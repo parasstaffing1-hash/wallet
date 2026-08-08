@@ -257,7 +257,7 @@ export default function PasswordManagerPage() {
         setIsBusy(false);
       }
     },
-    [editingId, entries, persist]
+    [editingId, entries, persist, visiblePasswordId]
   );
 
   const onCopy = async (entry: PasswordEntry) => {
@@ -298,6 +298,28 @@ export default function PasswordManagerPage() {
     setMessage("Generated a strong password.");
     clearNotice();
   }, [clearNotice]);
+
+  const onClearAll = useCallback(async () => {
+    const confirmed = window.confirm("Delete every saved password from this local vault?");
+    if (!confirmed) {
+      return;
+    }
+    setIsBusy(true);
+    try {
+      await clearPasswords(masterPassword);
+      setMasterPassword("");
+      setEntries([]);
+      setVisiblePasswordId(null);
+      setMessageTone("info");
+      setMessage("Password vault cleared.");
+      clearNotice();
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "Unable to clear the password vault.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, [clearNotice, masterPassword]);
 
   const onSignOut = useCallback(() => {
     clearPasswordKeyCache();
@@ -395,14 +417,9 @@ export default function PasswordManagerPage() {
               Lock
             </button>
             <button
-              onClick={() => {
-                setMasterPassword("");
-                clearPasswords();
-                setEntries([]);
-                setMessageTone("info");
-                setMessage("Password vault cleared.");
-                clearNotice();
-              }}
+              type="button"
+              onClick={() => void onClearAll()}
+              disabled={isBusy}
               className="rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 text-sm text-red-100 hover:bg-red-400/20"
             >
               Clear All

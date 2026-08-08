@@ -4,6 +4,9 @@ import Link from "next/link";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCurrentSession, logout } from "../../lib/auth";
+import { hasStoredPasswords, readPasswordsBackup, writePasswordsBackup } from "../../lib/passwords";
+import { hasStoredWallet, readWalletBackup, writeWalletBackup } from "../../lib/wallet";
+import { isDesktopApp } from "../../lib/secure-storage";
 
 type SettingPayload = {
   fullName: string;
@@ -146,12 +149,27 @@ export default function SettingsPage() {
     return Math.min(score, 100);
   }, [settings.useAuthenticator, settings.useBiometrics, settings.useSmsRecovery]);
 
-  const exportVault = useCallback(() => {
+  const exportVault = useCallback(async () => {
     setIsBusy(true);
     setMessage(null);
     try {
-      const walletBlob = window.localStorage.getItem("myapp-wallet:v1");
-      const passwordsBlob = window.localStorage.getItem("vaultflow-passwords:v1");
+      const desktop = isDesktopApp();
+      const walletPassword = desktop && hasStoredWallet()
+        ? window.prompt("Enter your API Vault password to export the encrypted backup.")
+        : "";
+      const passwordsPassword = desktop && hasStoredPasswords()
+        ? window.prompt("Enter your Password Manager password to export the encrypted backup.")
+        : "";
+      if ((hasStoredWallet() && !walletPassword) || (hasStoredPasswords() && !passwordsPassword)) {
+        setMessage("Export cancelled: both vault passwords are required on desktop.");
+        return;
+      }
+      const walletBlob = desktop
+        ? (walletPassword ? await readWalletBackup(walletPassword) : null)
+        : window.localStorage.getItem("myapp-wallet:v1");
+      const passwordsBlob = desktop
+        ? (passwordsPassword ? await readPasswordsBackup(passwordsPassword) : null)
+        : window.localStorage.getItem("vaultflow-passwords:v1");
       const payload = {
         exportedAt: new Date().toISOString(),
         account: username,
@@ -175,7 +193,7 @@ export default function SettingsPage() {
       setIsBusy(false);
       window.setTimeout(() => setMessage(null), 2300);
     }
-  }, [username, settings]);
+  }, [settings, username]);
 
   const importVault = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -193,14 +211,13 @@ export default function SettingsPage() {
 
     setIsBusy(true);
     setMessage(null);
-    const walletKey = "myapp-wallet:v1";
-    const passwordsKey = "vaultflow-passwords:v1";
     const settingsKey = STORAGE_KEY;
-    const previous = {
-      wallet: window.localStorage.getItem(walletKey),
-      passwords: window.localStorage.getItem(passwordsKey),
-      settings: window.localStorage.getItem(settingsKey),
-    };
+    const desktop = isDesktopApp();
+    let walletPassword = "";
+    let passwordsPassword = "";
+    let previousWallet: string | null = null;
+    let previousPasswords: string | null = null;
+    const previousSettings = window.localStorage.getItem(settingsKey);
 
     try {
       const parsed = JSON.parse(await file.text()) as {
@@ -223,20 +240,46 @@ export default function SettingsPage() {
       }
 
       const isSettings = parsed.settings && typeof parsed.settings === "object" && !Array.isArray(parsed.settings);
-      window.localStorage.setItem(walletKey, parsed.wallet ? JSON.stringify(parsed.wallet) : "");
-      window.localStorage.setItem(passwordsKey, parsed.passwords ? JSON.stringify(parsed.passwords) : "");
+      if (desktop) {
+        const needsWalletPassword = Boolean(parsed.wallet) || hasStoredWallet();
+        const needsPasswordsPassword = Boolean(parsed.passwords) || hasStoredPasswords();
+        walletPassword = needsWalletPassword
+          ? window.prompt(
+              hasStoredWallet()
+                ? "Enter your current API Vault password. The imported backup must use this same password."
+                : "Enter the API Vault password used by this backup."
+            ) ?? ""
+          : "";
+        passwordsPassword = needsPasswordsPassword
+          ? window.prompt(
+              hasStoredPasswords()
+                ? "Enter your current Password Manager password. The imported backup must use this same password."
+                : "Enter the Password Manager password used by this backup."
+            ) ?? ""
+          : "";
+        if ((needsWalletPassword && !walletPassword) || (needsPasswordsPassword && !passwordsPassword)) {
+          throw new Error("Import cancelled: vault passwords are required on desktop.");
+        }
+        previousWallet = walletPassword ? await readWalletBackup(walletPassword) : null;
+        previousPasswords = passwordsPassword ? await readPasswordsBackup(passwordsPassword) : null;
+        await writeWalletBackup(walletPassword, parsed.wallet ? JSON.stringify(parsed.wallet) : null);
+        await writePasswordsBackup(passwordsPassword, parsed.passwords ? JSON.stringify(parsed.passwords) : null);
+      } else {
+        window.localStorage.setItem("myapp-wallet:v1", parsed.wallet ? JSON.stringify(parsed.wallet) : "");
+        window.localStorage.setItem("vaultflow-passwords:v1", parsed.passwords ? JSON.stringify(parsed.passwords) : "");
+      }
       if (isSettings) {
         window.localStorage.setItem(settingsKey, JSON.stringify(parsed.settings));
       }
       setMessage("Encrypted backup restored. Reloading your vault...");
       window.setTimeout(() => window.location.reload(), 650);
     } catch (error) {
-      if (previous.wallet === null) window.localStorage.removeItem(walletKey);
-      else window.localStorage.setItem(walletKey, previous.wallet);
-      if (previous.passwords === null) window.localStorage.removeItem(passwordsKey);
-      else window.localStorage.setItem(passwordsKey, previous.passwords);
-      if (previous.settings === null) window.localStorage.removeItem(settingsKey);
-      else window.localStorage.setItem(settingsKey, previous.settings);
+      if (desktop) {
+        if (walletPassword) await writeWalletBackup(walletPassword, previousWallet);
+        if (passwordsPassword) await writePasswordsBackup(passwordsPassword, previousPasswords);
+      }
+      if (previousSettings === null) window.localStorage.removeItem(settingsKey);
+      else window.localStorage.setItem(settingsKey, previousSettings);
       setMessage(error instanceof Error ? error.message : "Could not restore this backup.");
     } finally {
       setIsBusy(false);

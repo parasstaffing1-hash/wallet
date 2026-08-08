@@ -1,3 +1,5 @@
+import { hasSecureValue, isDesktopApp, readSecureValue, removeSecureValue, writeSecureValue } from "./secure-storage";
+
 export type WalletItemKind = "api-key" | "login" | "secure-note" | "ssh-key" | "certificate" | "token";
 
 export interface WalletSecret {
@@ -27,7 +29,15 @@ interface EncryptedWallet {
 }
 
 const WALLET_STORAGE_KEY = "myapp-wallet:v1";
+const WALLET_PRESENT_KEY = "myapp-wallet:present";
 const WALLET_FOLDERS_STORAGE_KEY = "myapp-wallet-folders:v1";
+const SECURE_STORAGE = {
+  storageKey: WALLET_STORAGE_KEY,
+  markerKey: WALLET_PRESENT_KEY,
+  clientName: "wallet",
+  recordKey: "encrypted-wallet",
+  snapshotName: "wallet-vault",
+} as const;
 const ENCRYPTION_VERSION = 1;
 const LEGACY_PBKDF2_ITERATIONS = 50000;
 const PBKDF2_ITERATIONS = 310000;
@@ -61,25 +71,20 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(output);
 }
 
-function getStoredWalletBlob(): EncryptedWallet | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const raw = window.localStorage.getItem(WALLET_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as EncryptedWallet;
-  } catch {
-    return null;
-  }
+export function hasStoredWallet(): boolean {
+  return hasSecureValue(SECURE_STORAGE);
 }
 
-export function hasStoredWallet(): boolean {
-  return getStoredWalletBlob() !== null;
+export async function readWalletBackup(password: string): Promise<string | null> {
+  return readSecureValue(SECURE_STORAGE, password);
+}
+
+export async function writeWalletBackup(password: string, value: string | null): Promise<void> {
+  if (value === null) {
+    await removeSecureValue(SECURE_STORAGE, password);
+    return;
+  }
+  await writeSecureValue(SECURE_STORAGE, password, value);
 }
 
 export function loadWalletFolders(): string[] {
@@ -111,8 +116,13 @@ export function saveWalletFolders(folders: string[]): void {
   window.localStorage.setItem(WALLET_FOLDERS_STORAGE_KEY, JSON.stringify(normalized));
 }
 
-function getSaltAndBlob() {
-  const blob = getStoredWalletBlob();
+function getSaltAndBlob(rawValue: string | null) {
+  let blob: EncryptedWallet | null = null;
+  try {
+    blob = rawValue ? (JSON.parse(rawValue) as EncryptedWallet) : null;
+  } catch {
+    blob = null;
+  }
   if (!blob?.salt || !blob.iv || !blob.data) {
     return { blob: null, salt: null };
   }
@@ -160,9 +170,20 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
     return [];
   }
 
-  const blob = getStoredWalletBlob();
-  if (!blob) {
+  let rawValue: string | null;
+  try {
+    rawValue = await readSecureValue(SECURE_STORAGE, password);
+  } catch {
+    throw new Error("Invalid password or inaccessible secure wallet storage.");
+  }
+  if (!rawValue) {
     return [];
+  }
+  let blob: EncryptedWallet;
+  try {
+    blob = JSON.parse(rawValue) as EncryptedWallet;
+  } catch {
+    throw new Error("Wallet data is corrupted.");
   }
   if (!blob.salt || !blob.iv || !blob.data) {
     throw new Error("Wallet data is corrupted.");
@@ -177,10 +198,16 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
     const plainText = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherText);
     const decoded = decoder.decode(new Uint8Array(plainText));
     if (decoded.trim() === "") {
+      if (isDesktopApp() && window.localStorage.getItem(WALLET_STORAGE_KEY) !== null) {
+        await writeSecureValue(SECURE_STORAGE, password, rawValue);
+      }
       return [];
     }
     const secrets = JSON.parse(decoded) as Array<WalletSecret & { folder?: string }>;
     if (!Array.isArray(secrets)) {
+      if (isDesktopApp() && window.localStorage.getItem(WALLET_STORAGE_KEY) !== null) {
+        await writeSecureValue(SECURE_STORAGE, password, rawValue);
+      }
       return [];
     }
     const normalizedSecrets = secrets.map((secret) => ({
@@ -188,7 +215,7 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
       kind: secret.kind ?? "api-key",
       folder: secret.folder?.trim() || secret.project?.trim() || "General",
     }));
-    return normalizedSecrets.sort((a, b) => {
+    const normalized = normalizedSecrets.sort((a, b) => {
       const aTime = Date.parse(a.updatedAt);
       const bTime = Date.parse(b.updatedAt);
       if (!Number.isFinite(aTime) || !Number.isFinite(bTime)) {
@@ -196,6 +223,10 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
       }
       return bTime - aTime;
     });
+    if (isDesktopApp() && window.localStorage.getItem(WALLET_STORAGE_KEY) !== null) {
+      await writeSecureValue(SECURE_STORAGE, password, rawValue);
+    }
+    return normalized;
   } catch {
     clearWalletKeyCache();
     throw new Error("Invalid password or corrupted wallet file.");
@@ -207,7 +238,20 @@ export async function saveWallet(password: string, secrets: WalletSecret[]): Pro
     return;
   }
 
-  const existing = getSaltAndBlob();
+  const existing = getSaltAndBlob(await readSecureValue(SECURE_STORAGE, password));
+  if (existing.blob && existing.salt) {
+    try {
+      const existingKey = await getCachedKey(password, existing.salt, existing.blob.iterations ?? LEGACY_PBKDF2_ITERATIONS);
+      await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: base64ToBytes(existing.blob.iv) },
+        existingKey,
+        base64ToBytes(existing.blob.data)
+      );
+    } catch {
+      clearWalletKeyCache();
+      throw new Error("Invalid password or corrupted wallet file.");
+    }
+  }
   const salt = existing.salt ?? window.crypto.getRandomValues(new Uint8Array(16));
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const key = await getCachedKey(password, salt);
@@ -223,13 +267,11 @@ export async function saveWallet(password: string, secrets: WalletSecret[]): Pro
     data: bytesToBase64(new Uint8Array(cipherText)),
   };
 
-  window.localStorage.setItem(WALLET_STORAGE_KEY, JSON.stringify(blob));
+  await writeSecureValue(SECURE_STORAGE, password, JSON.stringify(blob));
 }
 
-export function clearWallet(): void {
+export async function clearWallet(password?: string): Promise<void> {
   clearWalletKeyCache();
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem(WALLET_STORAGE_KEY);
-    window.localStorage.removeItem(WALLET_FOLDERS_STORAGE_KEY);
-  }
+  await removeSecureValue(SECURE_STORAGE, password);
+  if (typeof window !== "undefined") window.localStorage.removeItem(WALLET_FOLDERS_STORAGE_KEY);
 }

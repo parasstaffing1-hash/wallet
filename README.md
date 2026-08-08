@@ -1,62 +1,54 @@
-# VaultFlow (Dashboard + API Vault)
+# Wallet
 
-Recreated from scratch:
+Wallet is an offline-first Windows desktop vault for project API keys, environment secrets, PEM/SSH material, and passwords. It has no hosted backend and does not send vault contents over the network.
 
-- Home: `/`
-- API Wallet: `/wallet`
+## Release build
 
-Quick start:
-
-## One-setup for Windows (single downloadable file)
-
-Download one file (`setup-wallet-windows.bat`) from the repo and run it on any Windows machine.
-
-Usage:
-
-1. If you are in the project folder, double-click `setup-wallet-windows.bat` for local setup.
-2. Or run it with any folder path to install into a separate location.
-3. The setup installs dependencies and runs a build check.
-4. Start with `npm run dev` (or `pnpm run dev`) when ready and open `http://localhost:3000`.
-
-If double-click does nothing, run from a terminal instead:
-
-```bat
-cd /d %USERPROFILE%\Downloads
-setup-wallet-windows.bat
-```
-
-Or paste a one-liner to run directly (downloads latest setup and starts it):
+The Windows release is a single NSIS installer. It embeds the WebView2 runtime so a clean Windows machine can install without an internet connection.
 
 ```powershell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/parasstaffing1-hash/wallet/main/setup-wallet-windows.bat" -OutFile "$env:TEMP\setup-wallet-windows.bat"; Start-Process cmd.exe -ArgumentList '/c', "$env:TEMP\setup-wallet-windows.bat" -NoNewWindow
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm check:production
+pnpm exec tsc --noEmit
+pnpm build
+pnpm desktop:build -- --ci
 ```
 
-## Manual start (if you prefer)
+The installer is generated at `src-tauri/target/release/bundle/nsis/`. The CI workflow also publishes a SHA-256 checksum for the installer.
+The checked-in release artifact is `Wallet-Desktop-Setup.exe`; verify it against `Wallet-Desktop-Setup.exe.sha256` before sharing.
 
-1. `pnpm install`
-2. `npm run dev`
-3. Open `http://localhost:3000`
-
-## Offline login
-
-VaultFlow uses offline-first auth. Open the app first at `/auth` (or use the `Login` link in the header), create an account, then log in from the same browser. No backend or internet calls are used for authentication.
-
-To launch quickly (legacy helper):
+## Local development
 
 ```powershell
-./open-dashboard.ps1
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm dev
 ```
 
-## Native desktop app
-
-The project includes a Tauri desktop shell in `src-tauri/`. It opens the wallet in its own Windows app window instead of a browser tab and loads the static UI locally for offline use.
-
-Build the Windows installer with:
+For the native shell:
 
 ```powershell
-npm install
-npm run build
-npx @tauri-apps/cli@2.11.4 build --ci
+pnpm build
+pnpm desktop:dev
 ```
 
-The installer is written to `src-tauri/target/release/bundle/nsis/`.
+## Security model
+
+- On the Windows desktop build, encrypted wallet and password vault blobs are stored in Tauri Stronghold, protected by the vault password and Argon2-derived Stronghold snapshot keys.
+- The vault payloads use AES-256-GCM with a unique random IV and PBKDF2-HMAC-SHA-256 (310,000 iterations) key derivation. Older 50,000-iteration vaults are upgraded after a successful unlock.
+- Existing browser-only data is migrated into Stronghold the first time a desktop vault is unlocked. The browser build keeps its encrypted localStorage fallback for offline use.
+- The app CSP is restrictive, native permissions are scoped to the main window, and the folder scanner skips symlinks, build/dependency folders, binary files, oversized files, and oversized projects.
+- Backups remain encrypted blobs. Exporting or importing on desktop requires the relevant vault password; the app never exports plaintext secrets.
+
+## Production checklist
+
+Run `pnpm check:production` before shipping. For a release build, also run the stress benchmark with a representative dataset:
+
+```powershell
+pnpm stress:test -- --wallet 100000 --passwords 100000
+```
+
+The installer should be code-signed with the publisher's Windows Authenticode certificate before distribution. This repository does not contain a private signing certificate; signing is intentionally a release-owner secret.
+
+## Offline account
+
+Account creation and login work without a server or internet connection. The account password is never stored; only a salted PBKDF2 verifier and a short-lived local session are retained.

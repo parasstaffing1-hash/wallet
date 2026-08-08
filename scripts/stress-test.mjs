@@ -4,7 +4,7 @@ const { subtle } = webcrypto;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const PASSPHRASE = "vaultflow-stress-passphrase";
-const PBKDF2_ITERATIONS = 50000;
+const PBKDF2_ITERATIONS = 310000;
 
 function parseArg(name, defaultValue) {
   const key = `--${name}`;
@@ -133,7 +133,9 @@ async function benchmarkWallet(count) {
     const key = await deriveKey(PASSPHRASE, salt);
     const iv = webcrypto.getRandomValues(new Uint8Array(12));
 
+    const encryptStart = nowMs();
     const encrypted = await subtle.encrypt({ name: "AES-GCM", iv }, key, payloadText);
+    const encryptMs = nowMs() - encryptStart;
     const encryptedBytes = encrypted.byteLength;
     const decryptStart = nowMs();
     const decrypted = await subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
@@ -141,7 +143,7 @@ async function benchmarkWallet(count) {
     const parsed = JSON.parse(plainText);
 
     return {
-      encryptMs: toMb(payloadText.byteLength),
+      encryptMs,
       encryptedMb: toMb(encryptedBytes),
       plainMb: toMb(payloadText.byteLength),
       decryptMs: nowMs() - decryptStart,
@@ -160,6 +162,7 @@ async function benchmarkWallet(count) {
     jsonLengthMb: toMb(snapshot.value),
     plainMb: encryption.value.plainMb,
     encryptedMb: encryption.value.encryptedMb,
+    encryptMs: encryption.value.encryptMs,
     decryptMs: encryption.value.decryptMs,
   };
 }
@@ -195,7 +198,7 @@ async function benchmarkPasswords(count) {
 
   const filterByUser = await runTimed("passwords:search-username", () => {
     let total = 0;
-    const needle = `user-${count - 1}`;
+    const needle = "user-999";
     for (const item of items) {
       if (item.username.includes(needle)) {
         total += 1;
@@ -215,7 +218,9 @@ async function benchmarkPasswords(count) {
     const key = await deriveKey(PASSPHRASE, salt);
     const iv = webcrypto.getRandomValues(new Uint8Array(12));
 
+    const encryptStart = nowMs();
     const encrypted = await subtle.encrypt({ name: "AES-GCM", iv }, key, payloadText);
+    const encryptMs = nowMs() - encryptStart;
     const encryptedBytes = encrypted.byteLength;
     const decryptStart = nowMs();
     const decrypted = await subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
@@ -225,6 +230,7 @@ async function benchmarkPasswords(count) {
     return {
       encryptedMb: toMb(encryptedBytes),
       plainMb: toMb(payloadText.byteLength),
+      encryptMs,
       decryptMs: nowMs() - decryptStart,
       plainEntries: Array.isArray(parsed) ? parsed.length : 0,
     };
@@ -241,6 +247,7 @@ async function benchmarkPasswords(count) {
     jsonLengthMb: toMb(snapshot.value),
     plainMb: encryption.value.plainMb,
     encryptedMb: encryption.value.encryptedMb,
+    encryptMs: encryption.value.encryptMs,
     decryptMs: encryption.value.decryptMs,
   };
 }

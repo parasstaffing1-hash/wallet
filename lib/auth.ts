@@ -3,6 +3,7 @@ type WalletUser = {
   username: string;
   passwordHash: string;
   salt: string;
+  iterations?: number;
   createdAt: string;
 };
 
@@ -15,7 +16,9 @@ type SessionState = {
 
 const USERS_STORAGE_KEY = "vaultflow-users:v1";
 const SESSION_STORAGE_KEY = "vaultflow-session:v1";
-const SESSION_MAX_AGE_MS = 60 * 60 * 24 * 30 * 1000; // 30 days
+const SESSION_MAX_AGE_MS = 60 * 60 * 24 * 7 * 1000; // 7 days
+const LEGACY_PBKDF2_ITERATIONS = 120000;
+const PBKDF2_ITERATIONS = 310000;
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -64,7 +67,7 @@ function normalizeUsername(value: string): string {
   return value.trim().toLowerCase();
 }
 
-async function derivePasswordHash(password: string, saltB64: string): Promise<string> {
+async function derivePasswordHash(password: string, saltB64: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
   const encoder = new TextEncoder();
   const salt = base64ToBytes(saltB64);
   const baseKey = await window.crypto.subtle.importKey(
@@ -78,7 +81,7 @@ async function derivePasswordHash(password: string, saltB64: string): Promise<st
     {
       name: "PBKDF2",
       salt,
-      iterations: 120000,
+      iterations,
       hash: "SHA-256",
     },
     baseKey,
@@ -170,6 +173,7 @@ export async function createAccount(username: string, password: string): Promise
     username: username.trim(),
     passwordHash,
     salt,
+    iterations: PBKDF2_ITERATIONS,
     createdAt: now,
   };
   users.push(nextUser);
@@ -194,9 +198,16 @@ export async function login(username: string, password: string): Promise<string 
     return "Invalid username or password.";
   }
 
-  const passwordHash = await derivePasswordHash(password, user.salt);
+  const iterations = user.iterations ?? LEGACY_PBKDF2_ITERATIONS;
+  const passwordHash = await derivePasswordHash(password, user.salt, iterations);
   if (passwordHash !== user.passwordHash) {
     return "Invalid username or password.";
+  }
+
+  if (iterations !== PBKDF2_ITERATIONS) {
+    user.passwordHash = await derivePasswordHash(password, user.salt, PBKDF2_ITERATIONS);
+    user.iterations = PBKDF2_ITERATIONS;
+    writeUsers(users);
   }
 
   const now = new Date().toISOString();
