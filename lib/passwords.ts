@@ -11,6 +11,7 @@ export interface PasswordEntry {
 
 interface EncryptedPasswordVault {
   version: number;
+  iterations?: number;
   salt: string;
   iv: string;
   data: string;
@@ -18,7 +19,8 @@ interface EncryptedPasswordVault {
 
 const PASSWORDS_STORAGE_KEY = "vaultflow-passwords:v1";
 const PASSWORD_ENCRYPTION_VERSION = 1;
-const PBKDF2_ITERATIONS = 50000;
+const LEGACY_PBKDF2_ITERATIONS = 50000;
+const PBKDF2_ITERATIONS = 310000;
 const BASE64_CHUNK_SIZE = 8192;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -68,9 +70,10 @@ export function hasStoredPasswords(): boolean {
   return getStoredVaultBlob() !== null;
 }
 
-function getDerivedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+function getDerivedKey(password: string, salt: Uint8Array, iterations = PBKDF2_ITERATIONS): Promise<CryptoKey> {
   const saltFingerprint = bytesToBase64(salt);
-  if (cachedKey && cachedKey.password === password && cachedKey.salt === saltFingerprint) {
+  const cacheFingerprint = `${saltFingerprint}:${iterations}`;
+  if (cachedKey && cachedKey.password === password && cachedKey.salt === cacheFingerprint) {
     return Promise.resolve(cachedKey.key);
   }
 
@@ -85,7 +88,7 @@ function getDerivedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
       {
         name: "PBKDF2",
         salt,
-        iterations: PBKDF2_ITERATIONS,
+        iterations,
         hash: "SHA-256",
       },
       baseKey,
@@ -94,7 +97,7 @@ function getDerivedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
       ["encrypt", "decrypt"]
     )
   ).then((key) => {
-    cachedKey = { password, salt: saltFingerprint, key };
+    cachedKey = { password, salt: cacheFingerprint, key };
     return key;
   });
 }
@@ -123,7 +126,7 @@ export async function loadPasswords(password: string): Promise<PasswordEntry[]> 
   const salt = base64ToBytes(blob.salt);
   const iv = base64ToBytes(blob.iv);
   const cipherText = base64ToBytes(blob.data);
-  const key = await getDerivedKey(password, salt);
+  const key = await getDerivedKey(password, salt, blob.iterations ?? LEGACY_PBKDF2_ITERATIONS);
 
   try {
     const plainText = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherText);
@@ -164,6 +167,7 @@ export async function savePasswords(password: string, secrets: PasswordEntry[]):
 
   const blob: EncryptedPasswordVault = {
     version: PASSWORD_ENCRYPTION_VERSION,
+    iterations: PBKDF2_ITERATIONS,
     salt: bytesToBase64(salt),
     iv: bytesToBase64(new Uint8Array(iv)),
     data: bytesToBase64(new Uint8Array(cipherText)),

@@ -1,10 +1,18 @@
+export type WalletItemKind = "api-key" | "login" | "secure-note" | "ssh-key" | "certificate" | "token";
+
 export interface WalletSecret {
   id: string;
+  kind: WalletItemKind;
   folder: string;
   project: string;
   app: string;
   name: string;
   value: string;
+  username?: string;
+  website?: string;
+  expiresAt?: string;
+  tags?: string[];
+  favorite?: boolean;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -12,6 +20,7 @@ export interface WalletSecret {
 
 interface EncryptedWallet {
   version: number;
+  iterations?: number;
   salt: string;
   iv: string;
   data: string;
@@ -20,7 +29,8 @@ interface EncryptedWallet {
 const WALLET_STORAGE_KEY = "myapp-wallet:v1";
 const WALLET_FOLDERS_STORAGE_KEY = "myapp-wallet-folders:v1";
 const ENCRYPTION_VERSION = 1;
-const PBKDF2_ITERATIONS = 50000;
+const LEGACY_PBKDF2_ITERATIONS = 50000;
+const PBKDF2_ITERATIONS = 310000;
 const BASE64_CHUNK_SIZE = 8192;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -109,9 +119,10 @@ function getSaltAndBlob() {
   return { blob, salt: base64ToBytes(blob.salt) };
 }
 
-function getCachedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+function getCachedKey(password: string, salt: Uint8Array, iterations = PBKDF2_ITERATIONS): Promise<CryptoKey> {
   const saltFingerprint = bytesToBase64(salt);
-  if (cachedKey && cachedKey.password === password && cachedKey.salt === saltFingerprint) {
+  const cacheFingerprint = `${saltFingerprint}:${iterations}`;
+  if (cachedKey && cachedKey.password === password && cachedKey.salt === cacheFingerprint) {
     return Promise.resolve(cachedKey.key);
   }
 
@@ -126,7 +137,7 @@ function getCachedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
       {
         name: "PBKDF2",
         salt,
-        iterations: PBKDF2_ITERATIONS,
+        iterations,
         hash: "SHA-256",
       },
       baseKey,
@@ -135,7 +146,7 @@ function getCachedKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
       ["encrypt", "decrypt"]
     )
   ).then((key) => {
-    cachedKey = { password, salt: saltFingerprint, key };
+    cachedKey = { password, salt: cacheFingerprint, key };
     return key;
   });
 }
@@ -160,7 +171,7 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
   const salt = base64ToBytes(blob.salt);
   const iv = base64ToBytes(blob.iv);
   const cipherText = base64ToBytes(blob.data);
-  const key = await getCachedKey(password, salt);
+  const key = await getCachedKey(password, salt, blob.iterations ?? LEGACY_PBKDF2_ITERATIONS);
 
   try {
     const plainText = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipherText);
@@ -174,6 +185,7 @@ export async function loadWallet(password: string): Promise<WalletSecret[]> {
     }
     const normalizedSecrets = secrets.map((secret) => ({
       ...secret,
+      kind: secret.kind ?? "api-key",
       folder: secret.folder?.trim() || secret.project?.trim() || "General",
     }));
     return normalizedSecrets.sort((a, b) => {
@@ -205,6 +217,7 @@ export async function saveWallet(password: string, secrets: WalletSecret[]): Pro
 
   const blob: EncryptedWallet = {
     version: ENCRYPTION_VERSION,
+    iterations: PBKDF2_ITERATIONS,
     salt: bytesToBase64(salt),
     iv: bytesToBase64(new Uint8Array(iv)),
     data: bytesToBase64(new Uint8Array(cipherText)),

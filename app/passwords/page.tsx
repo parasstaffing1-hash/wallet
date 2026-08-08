@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearPasswordKeyCache, clearPasswords, hasStoredPasswords, loadPasswords, PasswordEntry, savePasswords } from "../../lib/passwords";
 import { getCurrentSession, logout } from "../../lib/auth";
+import { generateSecurePassword, getPasswordStrength } from "../../lib/generator";
 
 type PasswordForm = Omit<PasswordEntry, "id" | "createdAt" | "updatedAt">;
 
@@ -263,6 +264,15 @@ export default function PasswordManagerPage() {
     await navigator.clipboard.writeText(entry.password);
     setCopiedId(entry.id);
     window.setTimeout(() => setCopiedId((current) => (current === entry.id ? null : current)), 1200);
+    window.setTimeout(async () => {
+      try {
+        if ((await navigator.clipboard.readText()) === entry.password) {
+          await navigator.clipboard.writeText("");
+        }
+      } catch {
+        // Clipboard permissions can expire; leave it untouched without interrupting the user.
+      }
+    }, 30_000);
   };
 
   const onPasteIntoField = useCallback(
@@ -281,6 +291,13 @@ export default function PasswordManagerPage() {
     },
     [clearNotice]
   );
+
+  const onGeneratePassword = useCallback(() => {
+    setForm((current) => ({ ...current, password: generateSecurePassword(24) }));
+    setMessageTone("ok");
+    setMessage("Generated a strong password.");
+    clearNotice();
+  }, [clearNotice]);
 
   const onSignOut = useCallback(() => {
     clearPasswordKeyCache();
@@ -479,6 +496,14 @@ export default function PasswordManagerPage() {
             >
               Paste password
             </button>
+            <button
+              type="button"
+              onClick={onGeneratePassword}
+              className="mt-2 ml-2 inline-flex h-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-4 text-xs font-semibold text-[#0a66c2] hover:bg-blue-100"
+            >
+              Generate strong password
+            </button>
+            {form.password && <p className="mt-2 text-xs text-slate-500">Strength: {getPasswordStrength(form.password)}</p>}
           </div>
 
           <div className="mt-4">

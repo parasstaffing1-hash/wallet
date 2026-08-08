@@ -12,9 +12,11 @@ import {
   loadWalletFolders,
   saveWallet,
   saveWalletFolders,
+  WalletItemKind,
   WalletSecret,
 } from "../../lib/wallet";
 import { getCurrentSession, logout } from "../../lib/auth";
+import { generateSecurePassword, getPasswordStrength } from "../../lib/generator";
 
 type FormState = Omit<WalletSecret, "id" | "createdAt" | "updatedAt">;
 type ImportableSecret = Omit<WalletSecret, "id" | "createdAt" | "updatedAt">;
@@ -33,6 +35,7 @@ type NativeFolderFile = {
 };
 
 const blankForm: FormState = {
+  kind: "api-key",
   folder: "General",
   project: "",
   app: "",
@@ -238,6 +241,23 @@ function keyForSecret(
   return `${folder}::${secret.project}::${secret.app}::${secret.name}`;
 }
 
+function inferItemKind(name: string, filename = ""): WalletItemKind {
+  const value = `${name} ${filename}`.toLowerCase();
+  if (value.endsWith(".pem") || value.includes("private_key") || value.includes("ssh")) {
+    return "ssh-key";
+  }
+  if (value.includes("password") || value.includes("username") || value.includes("login")) {
+    return "login";
+  }
+  if (value.includes("token") || value.includes("jwt") || value.includes("bearer")) {
+    return "token";
+  }
+  if (value.includes("certificate") || value.includes("cert")) {
+    return "certificate";
+  }
+  return "api-key";
+}
+
 function shortTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) {
@@ -306,6 +326,20 @@ export default function WalletPage() {
   const totalApps = useMemo(() => {
     const apps = new Set(secrets.map((secret) => `${secret.project}::${secret.app}`));
     return apps.size;
+  }, [secrets]);
+
+  const securityHealth = useMemo(() => {
+    const valueCounts = new Map<string, number>();
+    secrets.forEach((secret) => valueCounts.set(secret.value, (valueCounts.get(secret.value) ?? 0) + 1));
+    const weak = secrets.filter((secret) => secret.value.length < 12).length;
+    const reused = secrets.filter((secret) => (valueCounts.get(secret.value) ?? 0) > 1).length;
+    const horizon = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const expiring = secrets.filter((secret) => {
+      if (!secret.expiresAt) return false;
+      const expiresAt = Date.parse(secret.expiresAt);
+      return Number.isFinite(expiresAt) && expiresAt <= horizon;
+    }).length;
+    return { weak, reused, expiring };
   }, [secrets]);
 
   const filteredSecrets = useMemo(() => {
@@ -525,7 +559,14 @@ export default function WalletPage() {
             : secret
         );
         await persist(nextSecrets);
-        rememberFolder(target);
+        const importedFolderNames = new Set(imported.map((secret) => secret.folder || "General"));
+        setCustomFolders((current) => {
+          const next = Array.from(new Set([...current.filter((folder) => !importedFolderNames.has(folder)), target])).sort((a, b) =>
+            a.localeCompare(b)
+          );
+          saveWalletFolders(next);
+          return next;
+        });
         setFolderFilter(target);
         setProjectFilter("all");
         setSearchTermInput("");
@@ -541,7 +582,7 @@ export default function WalletPage() {
         setIsBusy(false);
       }
     },
-    [clearMessage, persist, rememberFolder, secrets]
+    [clearMessage, persist, secrets]
   );
 
   const onSave = useCallback(async () => {
@@ -563,11 +604,15 @@ export default function WalletPage() {
         nextSecrets = [
           {
             ...edited,
+            kind: form.kind,
             folder: form.folder.trim() || "General",
             project: form.project.trim(),
             app: form.app.trim(),
             name: form.name.trim(),
             value: form.value.trim(),
+            username: form.username?.trim() || undefined,
+            website: form.website?.trim() || undefined,
+            expiresAt: form.expiresAt?.trim() || undefined,
             notes: form.notes?.trim(),
             updatedAt: now,
           },
@@ -577,11 +622,15 @@ export default function WalletPage() {
         nextSecrets = [
           {
             id: crypto.randomUUID(),
+            kind: form.kind,
             folder: form.folder.trim() || "General",
             project: form.project.trim(),
             app: form.app.trim(),
             name: form.name.trim(),
             value: form.value.trim(),
+            username: form.username?.trim() || undefined,
+            website: form.website?.trim() || undefined,
+            expiresAt: form.expiresAt?.trim() || undefined,
             notes: form.notes?.trim(),
             createdAt: now,
             updatedAt: now,
@@ -604,11 +653,15 @@ export default function WalletPage() {
   const onEdit = (secret: WalletSecret) => {
     setEditingId(secret.id);
     setForm({
+      kind: secret.kind || "api-key",
       folder: secret.folder || "General",
       project: secret.project,
       app: secret.app,
       name: secret.name,
       value: secret.value,
+      username: secret.username ?? "",
+      website: secret.website ?? "",
+      expiresAt: secret.expiresAt ?? "",
       notes: secret.notes ?? "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -664,10 +717,39 @@ export default function WalletPage() {
     [clearMessage, persist, rememberFolder, secrets]
   );
 
+  const onToggleFavorite = useCallback(
+    async (id: string) => {
+      setIsBusy(true);
+      try {
+        const now = new Date().toISOString();
+        await persist(
+          secrets.map((secret) =>
+            secret.id === id ? { ...secret, favorite: !secret.favorite, updatedAt: now } : secret
+          )
+        );
+      } catch (error) {
+        setMessageTone("error");
+        setMessage(error instanceof Error ? error.message : "Failed to update favorite.");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [persist, secrets]
+  );
+
   const onCopy = async (secret: WalletSecret) => {
     await navigator.clipboard.writeText(secret.value);
     setCopiedId(secret.id);
     window.setTimeout(() => setCopiedId((current) => (current === secret.id ? null : current)), 1200);
+    window.setTimeout(async () => {
+      try {
+        if ((await navigator.clipboard.readText()) === secret.value) {
+          await navigator.clipboard.writeText("");
+        }
+      } catch {
+        // Clipboard permissions can expire; leaving it untouched is safer than interrupting the user.
+      }
+    }, 30_000);
   };
 
   const onPasteIntoField = useCallback(
@@ -683,6 +765,15 @@ export default function WalletPage() {
     },
     [clearMessage]
   );
+
+  const onGenerateValue = useCallback(() => {
+    setForm((current) => ({ ...current, value: generateSecurePassword(24) }));
+    setMessageTone("ok");
+    setMessage("Generated a strong random value.");
+    clearMessage();
+  }, [clearMessage]);
+
+  const valueStrength = useMemo(() => getPasswordStrength(form.value), [form.value]);
 
   const onClearVault = () => {
     const ok = window.confirm("This removes all local vault data and locks immediately.");
@@ -770,6 +861,7 @@ export default function WalletPage() {
             }
             seenInScan.add(scanKey);
             collected.push({
+              kind: inferItemKind(secretName, filename),
               folder: selectedFolder,
               project,
               app,
@@ -900,6 +992,7 @@ export default function WalletPage() {
           continue;
         }
         collected.push({
+          kind: "api-key",
           folder: "Clipboard",
           project: "clipboard",
           app: "imports",
@@ -981,6 +1074,25 @@ export default function WalletPage() {
     setPage(1);
     setIsLocked(true);
   }, []);
+
+  useEffect(() => {
+    if (isLocked) {
+      return;
+    }
+    let timer = 0;
+    const resetTimer = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => onLock(), 15 * 60 * 1000);
+    };
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "mousemove", "touchstart"];
+    activityEvents.forEach((event) => window.addEventListener(event, resetTimer));
+    resetTimer();
+    return () => {
+      window.clearTimeout(timer);
+      activityEvents.forEach((event) => window.removeEventListener(event, resetTimer));
+    };
+  }, [isLocked, onLock]);
+
   const messageClass =
     messageTone === "error"
       ? "border-red-200 bg-red-50 text-red-700"
@@ -1089,7 +1201,7 @@ export default function WalletPage() {
 
         {message && <p className={`mt-4 rounded-xl border p-3 text-sm ${messageClass}`}>{message}</p>}
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <article className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Total Secrets</p>
             <p className="mt-3 text-2xl font-semibold">{secrets.length}</p>
@@ -1105,6 +1217,15 @@ export default function WalletPage() {
           <article className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Folders</p>
             <p className="mt-3 text-2xl font-semibold">{folderNames.length}</p>
+          </article>
+          <article className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Security health</p>
+            <p className="mt-3 text-2xl font-semibold text-amber-900">
+              {securityHealth.weak + securityHealth.reused + securityHealth.expiring === 0 ? "Good" : securityHealth.weak + securityHealth.reused + securityHealth.expiring}
+            </p>
+            <p className="mt-1 text-[11px] text-amber-700">
+              {securityHealth.weak} weak · {securityHealth.reused} reused · {securityHealth.expiring} due soon
+            </p>
           </article>
         </div>
       </section>
@@ -1147,6 +1268,24 @@ export default function WalletPage() {
           <p className="text-sm font-semibold text-gray-200">{editingId ? "Update Secret" : "Add Secret"}</p>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-sm text-gray-300" htmlFor="kind">
+                Item type
+              </label>
+              <select
+                id="kind"
+                className={inputClass}
+                value={form.kind}
+                onChange={(event) => setForm((prev) => ({ ...prev, kind: event.target.value as WalletItemKind }))}
+              >
+                <option value="api-key">API key</option>
+                <option value="login">Login</option>
+                <option value="token">Token / JWT</option>
+                <option value="ssh-key">SSH / PEM key</option>
+                <option value="certificate">Certificate</option>
+                <option value="secure-note">Secure note</option>
+              </select>
+            </div>
             <div className="sm:col-span-2">
               <label className="text-sm text-gray-300" htmlFor="folder">
                 Project folder
@@ -1184,6 +1323,32 @@ export default function WalletPage() {
                 placeholder="backend"
               />
             </div>
+            <div>
+              <label className="text-sm text-gray-300" htmlFor="username">
+                Username (optional)
+              </label>
+              <input
+                id="username"
+                className={inputClass}
+                value={form.username ?? ""}
+                onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
+                placeholder="you@example.com"
+                autoComplete="username"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-300" htmlFor="website">
+                Website (optional)
+              </label>
+              <input
+                id="website"
+                className={inputClass}
+                value={form.website ?? ""}
+                onChange={(event) => setForm((prev) => ({ ...prev, website: event.target.value }))}
+                placeholder="https://app.example.com"
+                inputMode="url"
+              />
+            </div>
           </div>
 
           <div className="mt-4">
@@ -1218,13 +1383,36 @@ export default function WalletPage() {
               placeholder="sk-..."
               autoComplete="off"
             />
-            <button
-              type="button"
-              onClick={() => onPasteIntoField("value")}
-              className="mt-2 inline-flex h-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 px-4 text-xs font-semibold text-gray-200 hover:bg-white/10"
-            >
-              Paste value
-            </button>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onPasteIntoField("value")}
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 px-4 text-xs font-semibold text-gray-200 hover:bg-white/10"
+              >
+                Paste value
+              </button>
+              <button
+                type="button"
+                onClick={onGenerateValue}
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-4 text-xs font-semibold text-[#0a66c2] hover:bg-blue-100"
+              >
+                Generate strong value
+              </button>
+              {form.value && <span className="text-xs text-slate-500">Strength: {valueStrength}</span>}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <label className="text-sm text-gray-300" htmlFor="expiresAt">
+              Review or rotate by (optional)
+            </label>
+            <input
+              id="expiresAt"
+              type="date"
+              className={inputClass}
+              value={form.expiresAt ?? ""}
+              onChange={(event) => setForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
+            />
           </div>
 
           <div className="mt-4">
@@ -1431,6 +1619,9 @@ export default function WalletPage() {
                         <p className="truncate" title={secret.name}>
                           {secret.name}
                         </p>
+                        <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          {(secret.kind || "api-key").replace("-", " ")}
+                        </span>
                         <p className="mt-1 truncate text-xs font-medium text-[#0a66c2]" title={secret.folder || "General"}>
                           {secret.folder || "General"}
                         </p>
@@ -1450,6 +1641,15 @@ export default function WalletPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void onToggleFavorite(secret.id)}
+                            disabled={isBusy}
+                            aria-label={secret.favorite ? `Remove ${secret.name} from favorites` : `Favorite ${secret.name}`}
+                            className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-sm text-amber-600 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {secret.favorite ? "★" : "☆"}
+                          </button>
                           <select
                             value={secret.folder || "General"}
                             onChange={(event) => void onMoveSecret(secret.id, event.target.value)}
