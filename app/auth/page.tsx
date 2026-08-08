@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createAccount, getCurrentSession, hasStoredAccounts, login } from "../../lib/auth";
+import { createAccount, getCurrentSession, hasStoredAccounts, login, MIN_ACCOUNT_PASSWORD_LENGTH } from "../../lib/auth";
 
 const fieldClass =
   "mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20";
@@ -36,8 +36,8 @@ export default function AuthPage() {
     }
 
     if (mode === "create") {
-      if (password.length < 6) {
-        setMessage("Password must be at least 6 characters.");
+      if (password.length < MIN_ACCOUNT_PASSWORD_LENGTH) {
+        setMessage(`Password must be at least ${MIN_ACCOUNT_PASSWORD_LENGTH} characters.`);
         return;
       }
       if (password !== confirmPassword) {

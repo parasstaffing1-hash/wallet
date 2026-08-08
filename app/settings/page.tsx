@@ -4,8 +4,8 @@ import Link from "next/link";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCurrentSession, logout } from "../../lib/auth";
-import { hasStoredPasswords, readPasswordsBackup, writePasswordsBackup } from "../../lib/passwords";
-import { hasStoredWallet, readWalletBackup, writeWalletBackup } from "../../lib/wallet";
+import { hasStoredPasswords, readPasswordsBackup, validatePasswordsBackup, writePasswordsBackup } from "../../lib/passwords";
+import { hasStoredWallet, readWalletBackup, validateWalletBackup, writeWalletBackup } from "../../lib/wallet";
 import { isDesktopApp } from "../../lib/secure-storage";
 
 type SettingPayload = {
@@ -20,6 +20,7 @@ type SettingPayload = {
 };
 
 const STORAGE_KEY = "lumina-settings:v1";
+const MAX_BACKUP_BYTES = 128 * 1024 * 1024;
 const defaultSettings: SettingPayload = {
   fullName: "",
   email: "",
@@ -201,6 +202,10 @@ export default function SettingsPage() {
     if (!file) {
       return;
     }
+    if (file.size > MAX_BACKUP_BYTES) {
+      setMessage(`That backup is too large. Choose a file smaller than ${Math.round(MAX_BACKUP_BYTES / 1024 / 1024)} MB.`);
+      return;
+    }
 
     const confirmed = window.confirm(
       "Restore this encrypted backup? It will replace the wallet and password data stored on this computer."
@@ -217,6 +222,8 @@ export default function SettingsPage() {
     let passwordsPassword = "";
     let previousWallet: string | null = null;
     let previousPasswords: string | null = null;
+    let walletChanged = false;
+    let passwordsChanged = false;
     const previousSettings = window.localStorage.getItem(settingsKey);
 
     try {
@@ -260,10 +267,14 @@ export default function SettingsPage() {
         if ((needsWalletPassword && !walletPassword) || (needsPasswordsPassword && !passwordsPassword)) {
           throw new Error("Import cancelled: vault passwords are required on desktop.");
         }
+        await validateWalletBackup(walletPassword, parsed.wallet ? JSON.stringify(parsed.wallet) : null);
+        await validatePasswordsBackup(passwordsPassword, parsed.passwords ? JSON.stringify(parsed.passwords) : null);
         previousWallet = walletPassword ? await readWalletBackup(walletPassword) : null;
         previousPasswords = passwordsPassword ? await readPasswordsBackup(passwordsPassword) : null;
         await writeWalletBackup(walletPassword, parsed.wallet ? JSON.stringify(parsed.wallet) : null);
+        walletChanged = true;
         await writePasswordsBackup(passwordsPassword, parsed.passwords ? JSON.stringify(parsed.passwords) : null);
+        passwordsChanged = true;
       } else {
         window.localStorage.setItem("myapp-wallet:v1", parsed.wallet ? JSON.stringify(parsed.wallet) : "");
         window.localStorage.setItem("vaultflow-passwords:v1", parsed.passwords ? JSON.stringify(parsed.passwords) : "");
@@ -274,13 +285,24 @@ export default function SettingsPage() {
       setMessage("Encrypted backup restored. Reloading your vault...");
       window.setTimeout(() => window.location.reload(), 650);
     } catch (error) {
+      let rollbackFailed = false;
       if (desktop) {
-        if (walletPassword) await writeWalletBackup(walletPassword, previousWallet);
-        if (passwordsPassword) await writePasswordsBackup(passwordsPassword, previousPasswords);
+        try {
+          if (walletChanged && walletPassword) await writeWalletBackup(walletPassword, previousWallet);
+          if (passwordsChanged && passwordsPassword) await writePasswordsBackup(passwordsPassword, previousPasswords);
+        } catch {
+          rollbackFailed = true;
+        }
       }
       if (previousSettings === null) window.localStorage.removeItem(settingsKey);
       else window.localStorage.setItem(settingsKey, previousSettings);
-      setMessage(error instanceof Error ? error.message : "Could not restore this backup.");
+      setMessage(
+        rollbackFailed
+          ? "Restore failed and the previous vault could not be restored. Stop using this copy and recover from a known-good backup."
+          : error instanceof Error
+            ? error.message
+            : "Could not restore this backup."
+      );
     } finally {
       setIsBusy(false);
     }

@@ -7,8 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint --max-warnings=0",
+    "lint": "eslint . --max-warnings=0",
     "check:production": "node scripts/production-check.mjs",
+    "audit:dependencies": "pnpm audit",
     "test:crypto": "node --test scripts/crypto.test.mjs",
     "stress:test": "node --expose-gc --max-old-space-size=6144 scripts/stress-test.mjs",
     "desktop:dev": "tauri dev",
@@ -17,7 +18,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-stronghold": "2.3.1",
-    "next": "14.2.35",
+    "next": "15.5.21",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
@@ -28,8 +29,8 @@
     "@types/react-dom": "18.3.1",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.35",
-    "postcss": "^8.4.49",
+    "eslint-config-next": "15.5.21",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3.4.17",
     "typescript": "5.6.3"
   },

@@ -5,8 +5,10 @@ use std::{fs, path::Path};
 use tauri::Manager;
 
 const MAX_SCAN_FILE_BYTES: u64 = 1024 * 1024;
-const MAX_SCAN_FILES: usize = 100_000;
-const MAX_SCAN_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_SCAN_FILES: usize = 25_000;
+const MAX_SCAN_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_SCAN_DEPTH: usize = 64;
+const MAX_SCAN_DIRECTORIES: usize = 100_000;
 
 #[derive(Debug, Serialize)]
 pub struct FolderFile {
@@ -37,7 +39,19 @@ fn collect_folder_files(
     current: &Path,
     files: &mut Vec<FolderFile>,
     total_bytes: &mut u64,
+    scanned_files: &mut usize,
+    scanned_directories: &mut usize,
+    depth: usize,
 ) -> Result<(), String> {
+    if depth > MAX_SCAN_DEPTH {
+        return Err("The selected folder is nested too deeply to scan safely.".to_string());
+    }
+    if *scanned_directories >= MAX_SCAN_DIRECTORIES {
+        return Err(
+            "The selected folder contains too many directories to scan safely.".to_string(),
+        );
+    }
+    *scanned_directories += 1;
     let entries =
         fs::read_dir(current).map_err(|error| format!("Unable to read folder: {error}"))?;
     for entry in entries {
@@ -51,7 +65,15 @@ fn collect_folder_files(
         }
         if file_type.is_dir() {
             if !should_skip_directory(&entry.file_name().to_string_lossy()) {
-                collect_folder_files(root, &path, files, total_bytes)?;
+                collect_folder_files(
+                    root,
+                    &path,
+                    files,
+                    total_bytes,
+                    scanned_files,
+                    scanned_directories,
+                    depth + 1,
+                )?;
             }
             continue;
         }
@@ -65,7 +87,7 @@ fn collect_folder_files(
         if metadata.len() > MAX_SCAN_FILE_BYTES {
             continue;
         }
-        if files.len() >= MAX_SCAN_FILES
+        if *scanned_files >= MAX_SCAN_FILES
             || total_bytes.saturating_add(metadata.len()) > MAX_SCAN_TOTAL_BYTES
         {
             return Err(
@@ -73,10 +95,22 @@ fn collect_folder_files(
                     .to_string(),
             );
         }
+        *scanned_files += 1;
+        let total_before = *total_bytes;
+        *total_bytes = total_before.saturating_add(metadata.len());
         let bytes = fs::read(&path).map_err(|error| format!("Unable to read file: {error}"))?;
+        if bytes.len() as u64 > MAX_SCAN_FILE_BYTES
+            || total_before.saturating_add(bytes.len() as u64) > MAX_SCAN_TOTAL_BYTES
+        {
+            return Err(
+                "The selected folder changed while it was being scanned. Choose a smaller project folder."
+                    .to_string(),
+            );
+        }
         if bytes.contains(&0) {
             continue;
         }
+        let byte_len = bytes.len() as u64;
         let Ok(content) = String::from_utf8(bytes) else {
             continue;
         };
@@ -92,10 +126,9 @@ fn collect_folder_files(
         files.push(FolderFile {
             name: entry.file_name().to_string_lossy().to_string(),
             relative_path: format!("{folder_name}/{relative_path}"),
-            size: metadata.len(),
+            size: byte_len,
             content,
         });
-        *total_bytes = total_bytes.saturating_add(metadata.len());
     }
     Ok(())
 }
@@ -110,7 +143,17 @@ fn choose_and_scan_folder() -> Result<Option<Vec<FolderFile>>, String> {
     };
     let mut files = Vec::new();
     let mut total_bytes = 0;
-    collect_folder_files(&folder, &folder, &mut files, &mut total_bytes)?;
+    let mut scanned_files = 0;
+    let mut scanned_directories = 0;
+    collect_folder_files(
+        &folder,
+        &folder,
+        &mut files,
+        &mut total_bytes,
+        &mut scanned_files,
+        &mut scanned_directories,
+        0,
+    )?;
     Ok(Some(files))
 }
 

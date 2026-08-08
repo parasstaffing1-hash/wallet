@@ -12,6 +12,7 @@ const fieldClass =
   "mt-2 w-full rounded-xl border border-white/12 bg-white/[0.05] px-3.5 py-2.5 text-sm text-gray-100 outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/20";
 
 const PAGE_SIZE = 75;
+const MIN_VAULT_PASSWORD_LENGTH = 12;
 
 const blankPassword: PasswordForm = {
   title: "",
@@ -123,6 +124,7 @@ export default function PasswordManagerPage() {
       if (clearNoticeTimerRef.current !== null) {
         window.clearTimeout(clearNoticeTimerRef.current);
       }
+      clearPasswordKeyCache();
     };
   }, []);
 
@@ -141,6 +143,11 @@ export default function PasswordManagerPage() {
     if (!masterPassword.trim()) {
       setMessageTone("error");
       setMessage("Enter master password to open your credential vault.");
+      return;
+    }
+    if (!hasStoredPasswords() && masterPassword.length < MIN_VAULT_PASSWORD_LENGTH) {
+      setMessageTone("error");
+      setMessage(`Use at least ${MIN_VAULT_PASSWORD_LENGTH} characters for a new password vault password.`);
       return;
     }
 

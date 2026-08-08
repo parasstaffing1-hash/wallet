@@ -77,6 +77,30 @@ export async function writePasswordsBackup(password: string, value: string | nul
   await writeSecureValue(SECURE_STORAGE, password, value);
 }
 
+export async function validatePasswordsBackup(password: string, rawValue: string | null): Promise<void> {
+  if (!rawValue) {
+    return;
+  }
+  try {
+    const parsed = getSaltAndBlob(rawValue);
+    if (!parsed.blob || !parsed.salt) {
+      throw new Error("The password manager backup is not a valid encrypted payload.");
+    }
+    const key = await getDerivedKey(password, parsed.salt, parsed.blob.iterations ?? LEGACY_PBKDF2_ITERATIONS);
+    const plainText = await window.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64ToBytes(parsed.blob.iv) },
+      key,
+      base64ToBytes(parsed.blob.data)
+    );
+    if (!Array.isArray(JSON.parse(decoder.decode(new Uint8Array(plainText))))) {
+      throw new Error("Invalid password manager backup contents.");
+    }
+  } catch {
+    clearPasswordKeyCache();
+    throw new Error("The password manager backup password is incorrect or the backup is corrupted.");
+  }
+}
+
 function getDerivedKey(password: string, salt: Uint8Array, iterations = PBKDF2_ITERATIONS): Promise<CryptoKey> {
   const saltFingerprint = bytesToBase64(salt);
   const cacheFingerprint = `${saltFingerprint}:${iterations}`;

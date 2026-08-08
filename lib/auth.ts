@@ -19,6 +19,7 @@ const SESSION_STORAGE_KEY = "vaultflow-session:v1";
 const SESSION_MAX_AGE_MS = 60 * 60 * 24 * 7 * 1000; // 7 days
 const LEGACY_PBKDF2_ITERATIONS = 120000;
 const PBKDF2_ITERATIONS = 310000;
+export const MIN_ACCOUNT_PASSWORD_LENGTH = 12;
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -156,6 +157,9 @@ export function getCurrentUser(): WalletUser | null {
 export async function createAccount(username: string, password: string): Promise<string | null> {
   if (!username.trim() || !password) {
     return "Username and password are required.";
+  }
+  if (password.length < MIN_ACCOUNT_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_ACCOUNT_PASSWORD_LENGTH} characters.`;
   }
 
   const users = readUsers();

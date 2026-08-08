@@ -87,6 +87,31 @@ export async function writeWalletBackup(password: string, value: string | null):
   await writeSecureValue(SECURE_STORAGE, password, value);
 }
 
+export async function validateWalletBackup(password: string, rawValue: string | null): Promise<void> {
+  if (!rawValue) {
+    return;
+  }
+  try {
+    const parsed = getSaltAndBlob(rawValue);
+    if (!parsed.blob || !parsed.salt) {
+      throw new Error("The API Vault backup is not a valid encrypted payload.");
+    }
+    const key = await getCachedKey(password, parsed.salt, parsed.blob.iterations ?? LEGACY_PBKDF2_ITERATIONS);
+    const plainText = await window.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64ToBytes(parsed.blob.iv) },
+      key,
+      base64ToBytes(parsed.blob.data)
+    );
+    const decoded = decoder.decode(new Uint8Array(plainText));
+    if (!Array.isArray(JSON.parse(decoded))) {
+      throw new Error("Invalid API Vault backup contents.");
+    }
+  } catch {
+    clearWalletKeyCache();
+    throw new Error("The API Vault backup password is incorrect or the backup is corrupted.");
+  }
+}
+
 export function loadWalletFolders(): string[] {
   if (typeof window === "undefined") {
     return [];

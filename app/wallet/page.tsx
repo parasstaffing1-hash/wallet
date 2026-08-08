@@ -48,6 +48,9 @@ const inputClass =
   "mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20";
 
 const MAX_SCAN_FILE_BYTES = 1024 * 1024;
+const MAX_SCAN_FILES = 25_000;
+const MAX_SCAN_TOTAL_BYTES = 64 * 1024 * 1024;
+const MIN_VAULT_PASSWORD_LENGTH = 12;
 const SCAN_SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -447,6 +450,7 @@ export default function WalletPage() {
       if (clearMessageTimerRef.current !== null) {
         window.clearTimeout(clearMessageTimerRef.current);
       }
+      clearWalletKeyCache();
     };
   }, []);
 
@@ -454,6 +458,11 @@ export default function WalletPage() {
     if (!password.trim()) {
       setMessageTone("error");
       setMessage("Enter a password to unlock or create your vault.");
+      return;
+    }
+    if (!hasStoredWallet() && password.length < MIN_VAULT_PASSWORD_LENGTH) {
+      setMessageTone("error");
+      setMessage(`Use at least ${MIN_VAULT_PASSWORD_LENGTH} characters for a new vault password.`);
       return;
     }
     setMessage(null);
@@ -873,6 +882,12 @@ export default function WalletPage() {
       if (!scanFiles.length) {
         setMessageTone("error");
         setMessage("That folder is empty.");
+        return;
+      }
+      const totalBytes = scanFiles.reduce((total, file) => total + Math.max(0, file.size), 0);
+      if (scanFiles.length > MAX_SCAN_FILES || totalBytes > MAX_SCAN_TOTAL_BYTES) {
+        setMessageTone("error");
+        setMessage("That folder is too large to scan safely. Choose a smaller project folder (up to 25,000 files or 64 MB).");
         return;
       }
 
