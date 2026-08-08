@@ -18,6 +18,7 @@ interface EncryptedWallet {
 }
 
 const WALLET_STORAGE_KEY = "myapp-wallet:v1";
+const WALLET_FOLDERS_STORAGE_KEY = "myapp-wallet-folders:v1";
 const ENCRYPTION_VERSION = 1;
 const PBKDF2_ITERATIONS = 50000;
 const BASE64_CHUNK_SIZE = 8192;
@@ -69,6 +70,35 @@ function getStoredWalletBlob(): EncryptedWallet | null {
 
 export function hasStoredWallet(): boolean {
   return getStoredWalletBlob() !== null;
+}
+
+export function loadWalletFolders(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const raw = window.localStorage.getItem(WALLET_FOLDERS_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return Array.from(new Set(parsed.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean))).sort(
+      (a, b) => a.localeCompare(b)
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveWalletFolders(folders: string[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const normalized = Array.from(new Set(folders.map((folder) => folder.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  window.localStorage.setItem(WALLET_FOLDERS_STORAGE_KEY, JSON.stringify(normalized));
 }
 
 function getSaltAndBlob() {
@@ -187,5 +217,6 @@ export function clearWallet(): void {
   clearWalletKeyCache();
   if (typeof window !== "undefined") {
     window.localStorage.removeItem(WALLET_STORAGE_KEY);
+    window.localStorage.removeItem(WALLET_FOLDERS_STORAGE_KEY);
   }
 }

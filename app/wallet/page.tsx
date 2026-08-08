@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -9,7 +9,9 @@ import {
   clearWalletKeyCache,
   hasStoredWallet,
   loadWallet,
+  loadWalletFolders,
   saveWallet,
+  saveWalletFolders,
   WalletSecret,
 } from "../../lib/wallet";
 import { getCurrentSession, logout } from "../../lib/auth";
@@ -251,6 +253,8 @@ export default function WalletPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [messageTone, setMessageTone] = useState<"info" | "ok" | "error">("info");
   const [secrets, setSecrets] = useState<WalletSecret[]>([]);
+  const [customFolders, setCustomFolders] = useState<string[]>([]);
+  const [newFolderName, setNewFolderName] = useState("");
   const [form, setForm] = useState<FormState>(blankForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [folderFilter, setFolderFilter] = useState("all");
@@ -270,10 +274,10 @@ export default function WalletPage() {
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [secrets]);
 
-  const folders = useMemo(() => {
-    const values = new Set(secrets.map((secret) => secret.folder || "General"));
+  const folderNames = useMemo(() => {
+    const values = new Set(["General", ...customFolders, ...secrets.map((secret) => secret.folder || "General")]);
     return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [secrets]);
+  }, [customFolders, secrets]);
 
   const totalApps = useMemo(() => {
     const apps = new Set(secrets.map((secret) => `${secret.project}::${secret.app}`));
@@ -382,6 +386,7 @@ export default function WalletPage() {
     try {
       const loaded = await loadWallet(password);
       setSecrets(loaded);
+      setCustomFolders(loadWalletFolders());
       setIsLocked(false);
       setPage(1);
       setHasExistingVault(true);
@@ -413,6 +418,33 @@ export default function WalletPage() {
     },
     [password, clearMessage]
   );
+
+  const rememberFolder = useCallback((folder: string) => {
+    const normalized = folder.trim();
+    if (!normalized) {
+      return;
+    }
+    setCustomFolders((current) => {
+      const next = Array.from(new Set([...current, normalized])).sort((a, b) => a.localeCompare(b));
+      saveWalletFolders(next);
+      return next;
+    });
+  }, []);
+
+  const onCreateFolder = useCallback(() => {
+    const folder = newFolderName.trim();
+    if (!folder) {
+      setMessageTone("error");
+      setMessage("Enter a folder name first.");
+      clearMessage();
+      return;
+    }
+    rememberFolder(folder);
+    setNewFolderName("");
+    setMessageTone("ok");
+    setMessage(`Folder "${folder}" is ready.`);
+    clearMessage();
+  }, [clearMessage, newFolderName, rememberFolder]);
 
   const onSave = useCallback(async () => {
     if (!form.project.trim() || !form.app.trim() || !form.name.trim() || !form.value.trim()) {
@@ -461,6 +493,7 @@ export default function WalletPage() {
       }
 
       await persist(nextSecrets);
+      rememberFolder(form.folder || "General");
       resetForm();
     } catch (error) {
       setMessageTone("error");
@@ -468,7 +501,7 @@ export default function WalletPage() {
     } finally {
       setIsBusy(false);
     }
-  }, [editingId, form, persist, secrets]);
+  }, [editingId, form, persist, rememberFolder, secrets]);
 
   const onEdit = (secret: WalletSecret) => {
     setEditingId(secret.id);
@@ -506,6 +539,33 @@ export default function WalletPage() {
     [editingId, persist, secrets]
   );
 
+  const onMoveSecret = useCallback(
+    async (id: string, folder: string) => {
+      const nextFolder = folder.trim() || "General";
+      const now = new Date().toISOString();
+      const nextSecrets = secrets.map((secret) =>
+        secret.id === id ? { ...secret, folder: nextFolder, updatedAt: now } : secret
+      );
+      if (nextSecrets.every((secret, index) => secret === secrets[index])) {
+        return;
+      }
+      setIsBusy(true);
+      try {
+        await persist(nextSecrets);
+        rememberFolder(nextFolder);
+        setMessageTone("ok");
+        setMessage(`Moved secret to ${nextFolder}.`);
+        clearMessage();
+      } catch (error) {
+        setMessageTone("error");
+        setMessage(error instanceof Error ? error.message : "Failed to move secret.");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [clearMessage, persist, rememberFolder, secrets]
+  );
+
   const onCopy = async (secret: WalletSecret) => {
     await navigator.clipboard.writeText(secret.value);
     setCopiedId(secret.id);
@@ -533,6 +593,8 @@ export default function WalletPage() {
     }
     clearWallet();
     setSecrets([]);
+    setCustomFolders([]);
+    setNewFolderName("");
     setIsLocked(true);
     setVisibleSecretId(null);
     setPage(1);
@@ -631,7 +693,7 @@ export default function WalletPage() {
 
         const merged = [...secrets];
         const byKey = new Map(
-          merged.map((secret) => [keyForSecret({ project: secret.project, app: secret.app, name: secret.name }), secret])
+          merged.map((secret) => [keyForSecret({ folder: secret.folder, project: secret.project, app: secret.app, name: secret.name }), secret])
         );
 
         let added = 0;
@@ -660,6 +722,7 @@ export default function WalletPage() {
         }
 
         await persist(merged);
+        rememberFolder(selectedFolder);
         setPage(1);
         setVisibleSecretId(null);
         setMessageTone("ok");
@@ -671,7 +734,7 @@ export default function WalletPage() {
         setIsBusy(false);
       }
     },
-    [persist, secrets]
+    [persist, rememberFolder, secrets]
   );
 
   const onImportFolder = useCallback(
@@ -756,7 +819,7 @@ export default function WalletPage() {
 
       const merged = [...secrets];
       const byKey = new Map(
-        merged.map((secret) => [keyForSecret({ project: secret.project, app: secret.app, name: secret.name }), secret])
+        merged.map((secret) => [keyForSecret({ folder: secret.folder, project: secret.project, app: secret.app, name: secret.name }), secret])
       );
 
       let added = 0;
@@ -784,6 +847,7 @@ export default function WalletPage() {
       }
 
       await persist(merged);
+      rememberFolder("Clipboard");
       setPage(1);
       setVisibleSecretId(null);
       setMessageTone("ok");
@@ -795,13 +859,15 @@ export default function WalletPage() {
     } finally {
       setIsBusy(false);
     }
-  }, [persist, secrets, clearMessage]);
+  }, [persist, rememberFolder, secrets, clearMessage]);
 
   const onSignOut = useCallback(() => {
     clearWalletKeyCache();
     logout();
     setIsLocked(true);
     setSecrets([]);
+    setCustomFolders([]);
+    setNewFolderName("");
     setVisibleSecretId(null);
     setPage(1);
     router.replace("/auth");
@@ -811,6 +877,8 @@ export default function WalletPage() {
     clearWalletKeyCache();
     setPassword("");
     setSecrets([]);
+    setCustomFolders([]);
+    setNewFolderName("");
     setVisibleSecretId(null);
     setPage(1);
     setIsLocked(true);
@@ -938,7 +1006,7 @@ export default function WalletPage() {
           </article>
           <article className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Folders</p>
-            <p className="mt-3 text-2xl font-semibold">{folders.length}</p>
+            <p className="mt-3 text-2xl font-semibold">{folderNames.length}</p>
           </article>
         </div>
       </section>
@@ -974,6 +1042,40 @@ export default function WalletPage() {
               {scanSummary.skipped ? `, ${scanSummary.skipped} skipped` : ""}.
             </p>
           )}
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <p className="text-sm font-semibold text-slate-900">Project folders</p>
+            <p className="mt-1 text-xs text-slate-500">Create an empty folder first, then scan or move secrets into it.</p>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={newFolderName}
+                onChange={(event) => setNewFolderName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onCreateFolder();
+                  }
+                }}
+                placeholder="e.g. WorkoraJobs"
+                className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20"
+                aria-label="New project folder name"
+              />
+              <button
+                type="button"
+                onClick={onCreateFolder}
+                disabled={isBusy}
+                className="rounded-xl bg-[#0a66c2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Create
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {folderNames.map((folder) => (
+                <span key={folder} className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-[#0a66c2]">
+                  {folder}
+                </span>
+              ))}
+            </div>
+          </div>
           <input ref={importInputRef} type="file" className="hidden" onChange={onImportFolder} />
         </article>
 
@@ -1102,7 +1204,7 @@ export default function WalletPage() {
             className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-gray-200 md:w-auto"
           >
             <option value="all">All folders</option>
-            {folders.map((folder) => (
+            {folderNames.map((folder) => (
               <option key={folder} value={folder}>
                 {folder}
               </option>
@@ -1178,6 +1280,19 @@ export default function WalletPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
+                          <select
+                            value={secret.folder || "General"}
+                            onChange={(event) => void onMoveSecret(secret.id, event.target.value)}
+                            disabled={isBusy}
+                            aria-label={`Move ${secret.name} to folder`}
+                            className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-[#0a66c2] outline-none focus:border-[#0a66c2] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {folderNames.map((folder) => (
+                              <option key={folder} value={folder}>
+                                Move to: {folder}
+                              </option>
+                            ))}
+                          </select>
                           <button
                             onClick={() => setVisibleSecretId((current) => (current === secret.id ? null : secret.id))}
                             className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10"
