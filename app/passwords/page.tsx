@@ -342,6 +342,24 @@ export default function PasswordManagerPage() {
     setIsLocked(true);
   }, []);
 
+  useEffect(() => {
+    if (isLocked) {
+      return;
+    }
+    let timer = 0;
+    const resetTimer = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => onLock(), 15 * 60 * 1000);
+    };
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "mousemove", "touchstart"];
+    activityEvents.forEach((event) => window.addEventListener(event, resetTimer));
+    resetTimer();
+    return () => {
+      window.clearTimeout(timer);
+      activityEvents.forEach((event) => window.removeEventListener(event, resetTimer));
+    };
+  }, [isLocked, onLock]);
+
   if (!isAuthChecked) {
     return (
       <section className="mx-auto max-w-2xl">

@@ -11,10 +11,13 @@ const capabilities = JSON.parse(read("src-tauri/capabilities/default.json"));
 
 assert.equal(packageJson.private, true, "The app package must remain private.");
 assert.notEqual(packageJson.dependencies.next, "14.2.16", "The vulnerable Next.js version is still configured.");
+assert.equal(tauriConfig.app.withGlobalTauri, false, "Global Tauri APIs must stay disabled.");
 assert.equal(tauriConfig.app.security.csp["default-src"], "'self' asset:");
 assert.equal(tauriConfig.bundle.windows.webviewInstallMode.type, "offlineInstaller");
 assert.ok(capabilities.permissions.includes("stronghold:default"), "Stronghold permission is missing.");
 assert.match(read("lib/secure-storage.ts"), /plugin-stronghold/);
 assert.match(read("src-tauri/src/lib.rs"), /tauri_plugin_stronghold/);
+assert.match(read("app/wallet/page.tsx"), /15 \* 60 \* 1000/);
+assert.match(read("app/passwords/page.tsx"), /15 \* 60 \* 1000/);
 
 console.log("Production configuration checks passed.");
