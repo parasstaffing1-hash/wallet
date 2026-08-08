@@ -1658,22 +1658,22 @@ export default function WalletPage() {
             </div>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           {filteredSecrets.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-8 text-center text-sm text-gray-400">
               No secrets found for this filter.
             </div>
           ) : (
             <>
-            <table className="min-w-full table-fixed border-separate border-spacing-0">
+            <table className="w-full min-w-[980px] table-fixed border-separate border-spacing-0">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-[0.12em] text-gray-400">
-                  <th className="w-1/4 px-4 py-3">Secret</th>
-                  <th className="w-1/6 px-4 py-3">Project</th>
-                  <th className="w-1/6 px-4 py-3">App</th>
-                  <th className="w-1/6 px-4 py-3">Updated</th>
-                  <th className="w-2/6 px-4 py-3">Value</th>
-                  <th className="w-1/5 px-4 py-3">Actions</th>
+                  <th className="w-[24%] px-3 py-3">Secret</th>
+                  <th className="w-[12%] px-3 py-3">Project</th>
+                  <th className="w-[10%] px-3 py-3">App</th>
+                  <th className="w-[11%] px-3 py-3">Updated</th>
+                  <th className="w-[12%] px-3 py-3">Value</th>
+                  <th className="w-[31%] px-3 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1681,8 +1681,8 @@ export default function WalletPage() {
                   const isRevealed = visibleSecretId === secret.id;
                   const masked = "*".repeat(Math.min(18, Math.max(6, secret.value.length || 6)));
                   return (
-                    <tr key={secret.id} className="border-t border-white/10">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-100">
+                    <tr key={secret.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                      <td className="max-w-0 px-3 py-3 align-top text-sm font-medium text-gray-100">
                         <p className="truncate" title={secret.name}>
                           {secret.name}
                         </p>
@@ -1698,22 +1698,22 @@ export default function WalletPage() {
                           </p>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{secret.project}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{secret.app}</td>
-                      <td className="px-4 py-3 text-xs text-gray-400">{shortTime(secret.updatedAt)}</td>
-                      <td className="px-4 py-3">
+                      <td className="max-w-0 truncate px-3 py-3 align-top text-sm text-gray-300" title={secret.project}>{secret.project}</td>
+                      <td className="max-w-0 truncate px-3 py-3 align-top text-sm text-gray-300" title={secret.app}>{secret.app}</td>
+                      <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-gray-400">{shortTime(secret.updatedAt)}</td>
+                      <td className="max-w-0 px-3 py-3 align-top">
                         <p className="font-mono text-xs text-gray-300 break-all">
                           {isRevealed ? secret.value : masked}
                         </p>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex flex-wrap items-start gap-2">
                           <button
                             type="button"
                             onClick={() => void onToggleFavorite(secret.id)}
                             disabled={isBusy}
                             aria-label={secret.favorite ? `Remove ${secret.name} from favorites` : `Favorite ${secret.name}`}
-                            className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-sm text-amber-600 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-8 w-8 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-sm text-amber-600 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {secret.favorite ? "★" : "☆"}
                           </button>
@@ -1722,7 +1722,7 @@ export default function WalletPage() {
                             onChange={(event) => void onMoveSecret(secret.id, event.target.value)}
                             disabled={isBusy}
                             aria-label={`Move ${secret.name} to folder`}
-                            className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-[#0a66c2] outline-none focus:border-[#0a66c2] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="max-w-full rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs font-medium text-[#0a66c2] outline-none focus:border-[#0a66c2] disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {folderNames.map((folder) => (
                               <option key={folder} value={folder}>
@@ -1735,32 +1735,32 @@ export default function WalletPage() {
                               type="button"
                               onClick={() => void onRemoveFromFolder(secret.id)}
                               disabled={isBusy}
-                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              Remove from folder
+                              Remove
                             </button>
                           )}
                           <button
                             onClick={() => setVisibleSecretId((current) => (current === secret.id ? null : secret.id))}
-                            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10"
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:bg-slate-50"
                           >
                             {isRevealed ? "Hide" : "Reveal"}
                           </button>
                           <button
                             onClick={() => onCopy(secret)}
-                            className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10"
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-gray-600 hover:bg-slate-50"
                           >
                             {copiedId === secret.id ? "Copied" : "Copy"}
                           </button>
                           <button
                             onClick={() => onEdit(secret)}
-                            className="rounded-lg border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-xs text-cyan-100 hover:bg-cyan-300/20"
+                            className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs text-[#0a66c2] hover:bg-blue-100"
                           >
                             Edit
                           </button>
                           <button
                             onClick={() => onDelete(secret.id)}
-                            className="rounded-lg border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-xs text-red-100 hover:bg-red-400/20"
+                            className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700 hover:bg-red-100"
                           >
                             Delete
                           </button>
