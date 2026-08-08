@@ -279,6 +279,19 @@ export default function WalletPage() {
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [customFolders, secrets]);
 
+  const folderCards = useMemo(
+    () =>
+      folderNames.map((name) => {
+        const folderSecrets = secrets.filter((secret) => (secret.folder || "General") === name);
+        const latest = folderSecrets.reduce<string | null>(
+          (current, secret) => (!current || secret.updatedAt > current ? secret.updatedAt : current),
+          null
+        );
+        return { name, count: folderSecrets.length, latest };
+      }),
+    [folderNames, secrets]
+  );
+
   const totalApps = useMemo(() => {
     const apps = new Set(secrets.map((secret) => `${secret.project}::${secret.app}`));
     return apps.size;
@@ -445,6 +458,33 @@ export default function WalletPage() {
     setMessage(`Folder "${folder}" is ready.`);
     clearMessage();
   }, [clearMessage, newFolderName, rememberFolder]);
+
+  const openFolder = useCallback((folder: string) => {
+    setFolderFilter(folder);
+    setProjectFilter("all");
+    setSearchTermInput("");
+    setSearchTerm("");
+    setPage(1);
+    window.setTimeout(() => {
+      document.getElementById("secrets-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }, []);
+
+  const showAllFolders = useCallback(() => {
+    setFolderFilter("all");
+    setProjectFilter("all");
+    setSearchTermInput("");
+    setSearchTerm("");
+    setPage(1);
+  }, []);
+
+  const addSecretToFolder = useCallback((folder: string) => {
+    setEditingId(null);
+    setForm((current) => ({ ...current, folder }));
+    window.setTimeout(() => {
+      document.getElementById("secret-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }, []);
 
   const onSave = useCallback(async () => {
     if (!form.project.trim() || !form.app.trim() || !form.name.trim() || !form.value.trim()) {
@@ -1042,44 +1082,10 @@ export default function WalletPage() {
               {scanSummary.skipped ? `, ${scanSummary.skipped} skipped` : ""}.
             </p>
           )}
-          <div className="mt-5 border-t border-slate-200 pt-4">
-            <p className="text-sm font-semibold text-slate-900">Project folders</p>
-            <p className="mt-1 text-xs text-slate-500">Create an empty folder first, then scan or move secrets into it.</p>
-            <div className="mt-3 flex gap-2">
-              <input
-                value={newFolderName}
-                onChange={(event) => setNewFolderName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onCreateFolder();
-                  }
-                }}
-                placeholder="e.g. WorkoraJobs"
-                className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20"
-                aria-label="New project folder name"
-              />
-              <button
-                type="button"
-                onClick={onCreateFolder}
-                disabled={isBusy}
-                className="rounded-xl bg-[#0a66c2] px-4 py-2 text-sm font-semibold text-white hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Create
-              </button>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {folderNames.map((folder) => (
-                <span key={folder} className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-[#0a66c2]">
-                  {folder}
-                </span>
-              ))}
-            </div>
-          </div>
           <input ref={importInputRef} type="file" className="hidden" onChange={onImportFolder} />
         </article>
 
-        <article className="lg:col-span-3 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+        <article id="secret-form" className="lg:col-span-3 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-sm font-semibold text-gray-200">{editingId ? "Update Secret" : "Add Secret"}</p>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1196,7 +1202,105 @@ export default function WalletPage() {
         </article>
       </section>
 
-      <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+      <section id="folder-workspace" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#0a66c2]">Organize</p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-900">Project folders</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-600">
+              Open a folder to see its saved secrets. Empty folders stay available for your next import, and every secret can be moved between folders.
+            </p>
+          </div>
+          <div className="flex w-full gap-2 lg:max-w-md">
+            <input
+              value={newFolderName}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onCreateFolder();
+                }
+              }}
+              placeholder="New folder name"
+              className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20"
+              aria-label="New project folder name"
+            />
+            <button
+              type="button"
+              onClick={onCreateFolder}
+              disabled={isBusy}
+              className="rounded-xl bg-[#0a66c2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Create folder
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {folderCards.map(({ name, count, latest }) => {
+            const isOpen = folderFilter === name;
+            return (
+              <article
+                key={name}
+                className={`rounded-2xl border p-4 transition ${
+                  isOpen ? "border-[#0a66c2] bg-blue-50 shadow-sm" : "border-slate-200 bg-slate-50/70 hover:border-blue-200 hover:bg-blue-50/40"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-lg shadow-sm" aria-hidden="true">
+                    📁
+                  </div>
+                  <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                    {count} {count === 1 ? "secret" : "secrets"}
+                  </span>
+                </div>
+                <h3 className="mt-4 truncate text-sm font-semibold text-slate-900" title={name}>{name}</h3>
+                <p className="mt-1 min-h-9 text-xs text-slate-500">
+                  {count ? `Last updated ${shortTime(latest ?? "")}` : "Empty folder — ready for import"}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openFolder(name)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                      isOpen ? "bg-[#0a66c2] text-white" : "border border-blue-200 bg-white text-[#0a66c2] hover:bg-blue-50"
+                    }`}
+                  >
+                    {isOpen ? "Folder open" : "Open folder"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addSecretToFolder(name)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Add secret here
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        {folderFilter !== "all" && (
+          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Open folder: {folderFilter}</p>
+              <p className="mt-1 text-xs text-slate-600">
+                {folderCards.find((folder) => folder.name === folderFilter)?.count ?? 0} saved secret(s). Use the Move to menu in the table below to place secrets here.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={showAllFolders}
+              className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-[#0a66c2] hover:bg-blue-50"
+            >
+              Show all folders
+            </button>
+          </div>
+        )}
+      </section>
+
+      <section id="secrets-table" className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <select
             value={folderFilter}
