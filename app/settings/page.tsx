@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCurrentSession, logout } from "../../lib/auth";
 
@@ -76,6 +76,7 @@ export default function SettingsPage() {
   const [isBusy, setIsBusy] = useState(false);
   const [username, setUsername] = useState("");
   const [settings, setSettings] = useState<SettingPayload>(defaultSettings);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const [isAuthChecked, setIsAuthChecked] = useState(false);
 
@@ -175,6 +176,72 @@ export default function SettingsPage() {
       window.setTimeout(() => setMessage(null), 2300);
     }
   }, [username, settings]);
+
+  const importVault = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Restore this encrypted backup? It will replace the wallet and password data stored on this computer."
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsBusy(true);
+    setMessage(null);
+    const walletKey = "myapp-wallet:v1";
+    const passwordsKey = "vaultflow-passwords:v1";
+    const settingsKey = STORAGE_KEY;
+    const previous = {
+      wallet: window.localStorage.getItem(walletKey),
+      passwords: window.localStorage.getItem(passwordsKey),
+      settings: window.localStorage.getItem(settingsKey),
+    };
+
+    try {
+      const parsed = JSON.parse(await file.text()) as {
+        wallet?: unknown;
+        passwords?: unknown;
+        settings?: unknown;
+      };
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("That backup file is not valid JSON.");
+      }
+
+      const isEncryptedBlob = (value: unknown) => {
+        if (value === null || value === undefined) return true;
+        if (!value || typeof value !== "object") return false;
+        const blob = value as Record<string, unknown>;
+        return typeof blob.salt === "string" && typeof blob.iv === "string" && typeof blob.data === "string";
+      };
+      if (!isEncryptedBlob(parsed.wallet) || !isEncryptedBlob(parsed.passwords)) {
+        throw new Error("This backup is missing a valid encrypted wallet payload.");
+      }
+
+      const isSettings = parsed.settings && typeof parsed.settings === "object" && !Array.isArray(parsed.settings);
+      window.localStorage.setItem(walletKey, parsed.wallet ? JSON.stringify(parsed.wallet) : "");
+      window.localStorage.setItem(passwordsKey, parsed.passwords ? JSON.stringify(parsed.passwords) : "");
+      if (isSettings) {
+        window.localStorage.setItem(settingsKey, JSON.stringify(parsed.settings));
+      }
+      setMessage("Encrypted backup restored. Reloading your vault...");
+      window.setTimeout(() => window.location.reload(), 650);
+    } catch (error) {
+      if (previous.wallet === null) window.localStorage.removeItem(walletKey);
+      else window.localStorage.setItem(walletKey, previous.wallet);
+      if (previous.passwords === null) window.localStorage.removeItem(passwordsKey);
+      else window.localStorage.setItem(passwordsKey, previous.passwords);
+      if (previous.settings === null) window.localStorage.removeItem(settingsKey);
+      else window.localStorage.setItem(settingsKey, previous.settings);
+      setMessage(error instanceof Error ? error.message : "Could not restore this backup.");
+    } finally {
+      setIsBusy(false);
+    }
+  }, []);
 
   const onSignOut = useCallback(() => {
     logout();
@@ -360,18 +427,36 @@ export default function SettingsPage() {
             <article className="rounded-2xl border border-blue-200 bg-blue-50 p-6 shadow-sm">
               <div className="md:flex md:items-center md:justify-between">
                 <div className="max-w-xl">
-                  <p className="text-sm font-semibold">Vault Export</p>
+                  <p className="text-sm font-semibold">Encrypted backup</p>
                   <p className="mt-1 text-xs text-slate-600">
-                    Export an encrypted backup payload (wallet and password blobs) with your current settings profile.
+                    Move your wallet between computers with one encrypted file. No secret values are exported in plaintext.
                   </p>
                 </div>
-                <button
-                  onClick={exportVault}
-                  disabled={isBusy}
-                  className="mt-4 w-full rounded-xl bg-[#0a66c2] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60 md:mt-0 md:w-auto"
-                >
-                  {isBusy ? "Exporting..." : "Export Vault Data"}
-                </button>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row md:mt-0">
+                  <button
+                    type="button"
+                    onClick={exportVault}
+                    disabled={isBusy}
+                    className="rounded-xl bg-[#0a66c2] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isBusy ? "Working..." : "Export backup"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => importInputRef.current?.click()}
+                    disabled={isBusy}
+                    className="rounded-xl border border-blue-200 bg-white px-5 py-2.5 text-sm font-semibold text-[#0a66c2] hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Import backup
+                  </button>
+                  <input
+                    ref={importInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={importVault}
+                  />
+                </div>
               </div>
             </article>
           </section>
