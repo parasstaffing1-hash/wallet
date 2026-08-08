@@ -52,6 +52,26 @@ jobs:
       - name: Build native Windows app
         run: pnpm desktop:build -- --ci
 
+      - name: Sign installer when a publisher certificate is configured
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE_BASE64) {
+            Write-Host "No Authenticode certificate configured; leaving the installer unsigned."
+            exit 0
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "wallet-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          $signTool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $signTool) { throw "Windows SDK signtool.exe was not found." }
+          & $signTool.FullName sign /fd SHA256 /f $certificatePath /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr https://timestamp.digicert.com /td SHA256 "src-tauri/target/release/bundle/nsis/Wallet_1.0.0_x64-setup.exe"
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

@@ -47,7 +47,7 @@ Run `pnpm check:production` before shipping. For a release build, also run the s
 pnpm stress:test -- --wallet 100000 --passwords 100000
 ```
 
-The installer should be code-signed with the publisher's Windows Authenticode certificate before distribution. This repository does not contain a private signing certificate; signing is intentionally a release-owner secret.
+The installer should be code-signed with the publisher's Windows Authenticode certificate before distribution. CI signs it automatically when the `WINDOWS_CERTIFICATE_BASE64` and `WINDOWS_CERTIFICATE_PASSWORD` repository secrets are configured. This repository does not contain a private signing certificate; the checked-in installer is therefore unsigned and may show a Windows SmartScreen warning until you publish a signed build.
 
 ## Offline account
 
