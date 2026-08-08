@@ -261,7 +261,7 @@ export default function WalletPage() {
   const [visibleSecretId, setVisibleSecretId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [hasExistingVault, setHasExistingVault] = useState(false);
-  const [scanSummary, setScanSummary] = useState<{ scanned: number; found: number; skipped: number } | null>(null);
+  const [scanSummary, setScanSummary] = useState<{ folder: string; scanned: number; found: number; skipped: number } | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const clearMessageTimerRef = useRef<number | null>(null);
 
@@ -558,6 +558,7 @@ export default function WalletPage() {
         const now = new Date().toISOString();
         const collected: ImportableSecret[] = [];
         const seenInScan = new Set<string>();
+        const selectedFolder = inferFolderFromPath(scanFiles[0].relativePath);
         let scannedFiles = 0;
         let skippedFiles = 0;
         for (const file of scanFiles) {
@@ -598,19 +599,18 @@ export default function WalletPage() {
           }
 
           const project = inferProjectFromPath(relativePath);
-          const folder = inferFolderFromPath(relativePath);
           const app = inferAppFromPath(relativePath);
 
           for (const pair of parsed) {
             const secretName = pair.key.trim();
             const secretValue = pair.value.trim();
-            const scanKey = keyForSecret({ folder, project, app, name: secretName });
+            const scanKey = keyForSecret({ folder: selectedFolder, project, app, name: secretName });
             if (!secretName || !secretValue || seenInScan.has(scanKey)) {
               continue;
             }
             seenInScan.add(scanKey);
             collected.push({
-              folder,
+              folder: selectedFolder,
               project,
               app,
               name: secretName,
@@ -620,11 +620,11 @@ export default function WalletPage() {
           }
         }
 
-        setScanSummary({ scanned: scannedFiles, found: collected.length, skipped: skippedFiles });
+        setScanSummary({ folder: selectedFolder, scanned: scannedFiles, found: collected.length, skipped: skippedFiles });
         if (!collected.length) {
           setMessageTone("error");
           setMessage(
-            `I scanned ${scannedFiles} file(s), but did not find likely secrets. Try a project folder with .env or config files.`
+            `I scanned ${scannedFiles} file(s) in ${selectedFolder}, but did not find likely secrets. Try a project folder with .env or config files.`
           );
           return;
         }
@@ -970,7 +970,7 @@ export default function WalletPage() {
           </button>
           {scanSummary && (
             <p className="mt-3 text-xs text-slate-500">
-              Last scan: {scanSummary.scanned} file(s) checked, {scanSummary.found} secret(s) found
+              Last scan: <span className="font-semibold text-slate-700">{scanSummary.folder}</span> · {scanSummary.scanned} file(s) checked, {scanSummary.found} secret(s) found
               {scanSummary.skipped ? `, ${scanSummary.skipped} skipped` : ""}.
             </p>
           )}
@@ -983,14 +983,14 @@ export default function WalletPage() {
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-sm text-gray-300" htmlFor="folder">
-                Folder
+                Project folder
               </label>
               <input
                 id="folder"
                 className={inputClass}
                 value={form.folder}
                 onChange={(event) => setForm((prev) => ({ ...prev, folder: event.target.value }))}
-                placeholder="client-a / production"
+                placeholder="WorkoraJobs"
               />
               <p className="mt-1 text-xs text-slate-500">Use a simple name like Client A, Production, or Personal.</p>
             </div>
