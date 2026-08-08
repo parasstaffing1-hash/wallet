@@ -746,6 +746,44 @@ export default function WalletPage() {
     [clearMessage, persist, rememberFolder, secrets]
   );
 
+  const onRemoveFromFolder = useCallback(
+    async (id: string) => {
+      const secret = secrets.find((item) => item.id === id);
+      const currentFolder = secret?.folder?.trim() || "General";
+      if (!secret || currentFolder === "General") {
+        setMessageTone("info");
+        setMessage("This secret is already outside a project folder.");
+        clearMessage();
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Remove “${secret.name}” from ${currentFolder}? It will stay in your wallet under General.`
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setIsBusy(true);
+      try {
+        const now = new Date().toISOString();
+        await persist(
+          secrets.map((item) => (item.id === id ? { ...item, folder: "General", updatedAt: now } : item))
+        );
+        rememberFolder("General");
+        setMessageTone("ok");
+        setMessage(`Removed ${secret.name} from ${currentFolder}.`);
+        clearMessage();
+      } catch (error) {
+        setMessageTone("error");
+        setMessage(error instanceof Error ? error.message : "Failed to remove secret from folder.");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [clearMessage, persist, rememberFolder, secrets]
+  );
+
   const onToggleFavorite = useCallback(
     async (id: string) => {
       setIsBusy(true);
@@ -1569,7 +1607,7 @@ export default function WalletPage() {
             <div>
               <p className="text-sm font-semibold text-slate-900">Open folder: {folderFilter}</p>
               <p className="mt-1 text-xs text-slate-600">
-                {folderCards.find((folder) => folder.name === folderFilter)?.count ?? 0} saved secret(s). Use the Move to menu in the table below to place secrets here.
+                {folderCards.find((folder) => folder.name === folderFilter)?.count ?? 0} saved secret(s). Use Move to to place a secret here, or Remove from folder to keep it in the wallet without a project folder.
               </p>
             </div>
             <button
@@ -1692,6 +1730,16 @@ export default function WalletPage() {
                               </option>
                             ))}
                           </select>
+                          {(secret.folder || "General") !== "General" && (
+                            <button
+                              type="button"
+                              onClick={() => void onRemoveFromFolder(secret.id)}
+                              disabled={isBusy}
+                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Remove from folder
+                            </button>
+                          )}
                           <button
                             onClick={() => setVisibleSecretId((current) => (current === secret.id ? null : secret.id))}
                             className="rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-gray-200 hover:bg-white/10"
