@@ -272,6 +272,20 @@ function shortTime(value: string): string {
   });
 }
 
+function regroupWorkoraJobsSecrets(secrets: WalletSecret[], folders: string[]) {
+  const knownFolders = Array.from(new Set([...folders, ...secrets.map((secret) => secret.folder || "General")]));
+  const targetFolder = knownFolders.find((folder) => folder.trim().toLowerCase() === "workorajobs");
+  if (!targetFolder) {
+    return { secrets, folders, targetFolder: null, moved: 0 };
+  }
+
+  const moved = secrets.filter((secret) => (secret.folder || "General") !== targetFolder).length;
+  const regroupedSecrets = secrets.map((secret) =>
+    secret.folder === targetFolder ? secret : { ...secret, folder: targetFolder }
+  );
+  return { secrets: regroupedSecrets, folders: [targetFolder], targetFolder, moved };
+}
+
 const PAGE_SIZE = 75;
 
 export default function WalletPage() {
@@ -306,7 +320,10 @@ export default function WalletPage() {
   }, [secrets]);
 
   const folderNames = useMemo(() => {
-    const values = new Set(["General", ...customFolders, ...secrets.map((secret) => secret.folder || "General")]);
+    const values = new Set([...customFolders, ...secrets.map((secret) => secret.folder || "General")]);
+    if (values.size === 0) {
+      values.add("General");
+    }
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [customFolders, secrets]);
 
@@ -443,14 +460,26 @@ export default function WalletPage() {
     setIsBusy(true);
     try {
       const loaded = await loadWallet(password);
-      setSecrets(loaded);
-      setCustomFolders(loadWalletFolders());
+      const storedFolders = loadWalletFolders();
+      const regrouped = regroupWorkoraJobsSecrets(loaded, storedFolders);
+      const foldersChanged =
+        regrouped.folders.length !== storedFolders.length || regrouped.folders.some((folder, index) => folder !== storedFolders[index]);
+      if (regrouped.targetFolder && (regrouped.moved > 0 || foldersChanged)) {
+        await saveWallet(password, regrouped.secrets);
+        saveWalletFolders(regrouped.folders);
+      }
+      setSecrets(regrouped.secrets);
+      setCustomFolders(regrouped.folders);
       setIsLocked(false);
       setPage(1);
       setHasExistingVault(true);
       setVisibleSecretId(null);
       setMessageTone("ok");
-      setMessage("Vault unlocked successfully.");
+      setMessage(
+        regrouped.moved > 0
+          ? `Grouped ${regrouped.moved} saved secret(s) into ${regrouped.targetFolder}.`
+          : "Vault unlocked successfully."
+      );
       clearMessage();
     } catch (error) {
       setMessageTone("error");
