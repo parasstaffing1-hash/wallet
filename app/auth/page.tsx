@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createAccount, getCurrentSession, hasStoredAccounts, login } from "../../lib/auth";
 
 const fieldClass =
-  "mt-2 w-full rounded-xl border border-white/12 bg-white/[0.05] px-3.5 py-2.5 text-sm text-gray-100 outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/20";
+  "mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0a66c2] focus:ring-2 focus:ring-[#0a66c2]/20";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -74,17 +74,17 @@ export default function AuthPage() {
 
   return (
     <main className="mx-auto max-w-xl">
-      <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl shadow-black/30">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-300">Offline Identity</p>
-        <h1 className="mt-3 text-3xl font-semibold">
+      <section className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-[0_24px_70px_-42px_rgba(15,23,42,.42)] sm:p-9">
+        <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#0a66c2]">Offline identity</p>
+        <h1 className="mt-3 text-3xl font-bold tracking-[-0.03em] text-slate-950">
           {mode === "create" ? "Create your account" : "Sign in to VaultFlow"}
         </h1>
-        <p className="mt-2 text-sm text-gray-300">
+        <p className="mt-2 text-sm leading-6 text-slate-600">
           This project works entirely offline and stores account credentials in this browser.
         </p>
 
         {message && (
-          <p className="mt-4 rounded-xl border border-red-400/40 bg-red-400/10 px-4 py-2 text-sm text-red-100">
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {message}
           </p>
         )}
@@ -96,7 +96,7 @@ export default function AuthPage() {
           }}
         >
         <div className="mt-5">
-          <label className="text-sm text-gray-300" htmlFor="username">
+          <label className="text-sm font-medium text-slate-700" htmlFor="username">
             Username
           </label>
           <input
@@ -109,7 +109,7 @@ export default function AuthPage() {
         </div>
 
         <div className="mt-4">
-          <label className="text-sm text-gray-300" htmlFor="password">
+          <label className="text-sm font-medium text-slate-700" htmlFor="password">
             Password
           </label>
           <input
@@ -125,7 +125,7 @@ export default function AuthPage() {
 
         {mode === "create" && (
           <div className="mt-4">
-            <label className="text-sm text-gray-300" htmlFor="confirmPassword">
+            <label className="text-sm font-medium text-slate-700" htmlFor="confirmPassword">
               Confirm Password
             </label>
             <input
@@ -144,14 +144,14 @@ export default function AuthPage() {
           <button
             type="submit"
             disabled={isBusy}
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/30 transition disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-[#0a66c2] px-5 py-2 text-sm font-semibold text-white shadow-[0_12px_28px_-18px_rgba(10,102,194,.7)] transition hover:bg-[#004182] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isBusy ? "Please wait..." : submitLabel}
           </button>
           {hasAccounts && (
             <button
               type="button"
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-[#0a66c2]"
               onClick={toggleMode}
             >
               {mode === "create" ? "Have an account? Sign in" : "Need a new account? Create one"}

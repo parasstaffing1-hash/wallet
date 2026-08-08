@@ -12,7 +12,7 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f3f6f8;
+  background-color: #f5f7fa;
   color: #172b4d;
 }
 
@@ -36,9 +36,61 @@ button {
   color: #0a66c2;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(10, 102, 194, 0.08), transparent 28rem),
+    radial-gradient(circle at 92% 14%, rgba(99, 102, 241, 0.05), transparent 24rem);
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  transition-duration: 160ms;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(10, 102, 194, 0.2);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #eef2f6;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid #eef2f6;
+  border-radius: 999px;
+  background: #b8c6d4;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #91a4b8;
+}
+
 /* Keep the existing component markup readable while presenting a calm, light wallet UI. */
 .app-theme {
   color: #172b4d;
+}
+
+.wallet-page.space-y-6 {
+  max-width: 1440px;
+  margin-inline: auto;
 }
 
 .app-theme [class*="bg-slate-950"] {
@@ -84,6 +136,27 @@ button {
 .app-theme [class*="bg-gradient-to-r"] {
   background-image: none !important;
   background-color: #0a66c2 !important;
+}
+
+.app-theme [class*="shadow-2xl"],
+.app-theme [class*="shadow-black"] {
+  box-shadow: 0 24px 70px -42px rgba(15, 23, 42, 0.42) !important;
+}
+
+.app-theme [class*="shadow-lg"] {
+  box-shadow: 0 12px 28px -18px rgba(10, 102, 194, 0.42) !important;
+}
+
+.app-theme [class*="bg-white/5"] {
+  background-color: #f8fafc !important;
+}
+
+.app-theme [class*="bg-white/[0.04]"] {
+  background-color: #fbfdff !important;
+}
+
+.app-theme [class*="bg-white/[0.03]"] {
+  background-color: #ffffff !important;
 }
 
 .app-theme input,
